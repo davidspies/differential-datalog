@@ -50,33 +50,33 @@ import Language.DifferentialDatalog.Var
 import {-# SOURCE #-} Language.DifferentialDatalog.TypeInference
 import {-# SOURCE #-} Language.DifferentialDatalog.Type
 
-lookupType :: DatalogProgram -> String -> Maybe TypeDef
+lookupType :: DatalogProgram' name -> String -> Maybe TypeDef
 lookupType DatalogProgram{..} n = M.lookup n progTypedefs
 
-checkType :: (MonadError String me) => Pos -> DatalogProgram -> String -> me TypeDef
+checkType :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> me TypeDef
 checkType p d n = case lookupType d n of
                        Nothing -> err d p $ "Unknown type: " ++ n
                        Just t  -> return t
 
-getType :: DatalogProgram -> String -> TypeDef
+getType :: DatalogProgram' name -> String -> TypeDef
 getType d n = fromJust $ lookupType d n
 
 -- Given only function name (and optionally the number of arguments), lookup can return
 -- multiple functions.
-lookupFuncs :: DatalogProgram -> String -> Maybe Int -> Maybe [Function]
+lookupFuncs :: DatalogProgram' name -> String -> Maybe Int -> Maybe [Function]
 lookupFuncs DatalogProgram{..} n Nothing =
     M.lookup n progFunctions
 lookupFuncs DatalogProgram{..} n (Just nargs) =
     filter ((== nargs) . length . funcArgs) <$> M.lookup n progFunctions
 
 
-checkFuncs :: (MonadError String me) => Pos -> DatalogProgram -> String -> Maybe Int -> me [Function]
+checkFuncs :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> Maybe Int -> me [Function]
 checkFuncs p d n nargs = case lookupFuncs d n nargs of
                               Nothing -> err d p $ "Unknown function: '" ++ n ++ "'" ++
                                                    (maybe "" (\x -> " with " ++ show x ++ " arguments") nargs)
                               Just fs -> return fs
 
-getFuncs :: DatalogProgram -> String -> Maybe Int -> [Function]
+getFuncs :: DatalogProgram' name -> String -> Maybe Int -> [Function]
 getFuncs d n nargs = fromJust $ lookupFuncs d n nargs
 
 -- Find a function by its name, argument types, and return type.  This function should only be
@@ -84,7 +84,7 @@ getFuncs d n nargs = fromJust $ lookupFuncs d n nargs
 -- function.
 -- TODO: change ret_type from Maybe Type to Type once we've change aggregation
 -- syntax to use expression in the LHS.
-lookupFunc :: DatalogProgram -> String -> [Type] -> Type -> Maybe (Function, M.Map String Type)
+lookupFunc :: DatalogProgram' name -> String -> [Type] -> Type -> Maybe (Function, M.Map String Type)
 lookupFunc d@DatalogProgram{..} n arg_types ret_type =
     listToMaybe $
     mapMaybe (\f@Function{..} -> case inferTypeArgs d nopos "" $ zip (map typ funcArgs ++ [funcType]) (arg_types ++ [ret_type]) of
@@ -94,59 +94,59 @@ lookupFunc d@DatalogProgram{..} n arg_types ret_type =
     where
     candidates = maybe [] id $ lookupFuncs d n (Just $ length arg_types)
 
-checkFunc :: (MonadError String me) => Pos -> DatalogProgram -> String -> [Type] -> Type -> me (Function, M.Map String Type)
+checkFunc :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> [Type] -> Type -> me (Function, M.Map String Type)
 checkFunc p d n arg_types ret_type =
     case lookupFunc d n arg_types ret_type of
          Nothing -> err d p $ "Unknown function: '" ++ n ++ "(" ++ (intercalate "," $ map show arg_types) ++ "): " <> (show ret_type) <> "'"
          Just f  -> return f
 
-getFunc :: DatalogProgram -> String -> [Type] -> Type -> (Function, M.Map String Type)
+getFunc :: DatalogProgram' name -> String -> [Type] -> Type -> (Function, M.Map String Type)
 getFunc d n arg_types ret_type = fromJust $ lookupFunc d n arg_types ret_type
 
-lookupTransformer :: DatalogProgram -> String -> Maybe Transformer
+lookupTransformer :: DatalogProgram' name -> String -> Maybe Transformer
 lookupTransformer DatalogProgram{..} n = M.lookup n progTransformers
 
-checkTransformer :: (MonadError String me) => Pos -> DatalogProgram -> String -> me Transformer
+checkTransformer :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> me Transformer
 checkTransformer p d n = case lookupTransformer d n of
                               Nothing -> err d p $ "Unknown transformer: " ++ n
                               Just t  -> return t
 
-getTransformer :: DatalogProgram -> String -> Transformer
+getTransformer :: DatalogProgram' name -> String -> Transformer
 getTransformer d n = fromJust $ lookupTransformer d n
 
-lookupVar :: DatalogProgram -> ECtx -> String -> Maybe Var
+lookupVar :: DatalogProgram' name -> ECtx -> String -> Maybe Var
 lookupVar d ctx n = find ((==n) . name) $ ctxAllVars d ctx
 
-checkVar :: (MonadError String me) => Pos -> DatalogProgram -> ECtx -> String -> me Var
+checkVar :: (MonadError String me) => Pos -> DatalogProgram' name -> ECtx -> String -> me Var
 checkVar p d c n = case lookupVar d c n of
                         Nothing -> err d p $ "Unknown variable: " ++ n -- ++ ". All known variables: " ++ (show $ (\(ls,vs) -> (map name ls, map name vs)) $ ctxVars d c)
                         Just v  -> return v
 
-getVar :: DatalogProgram -> ECtx -> String -> Var
+getVar :: DatalogProgram' name -> ECtx -> String -> Var
 getVar d c n = 
     maybe (error $ "getVar: unknown variable '" ++ n ++ "' in\n" ++ show c ++ "\nVariables in scope:" ++ show (ctxAllVars d c)) id $ lookupVar d c n
 
-lookupConstructor :: DatalogProgram -> String -> Maybe Constructor
+lookupConstructor :: DatalogProgram' name -> String -> Maybe Constructor
 lookupConstructor d c =
     find ((== c) . name) $ progConstructors d
 
-checkConstructor :: (MonadError String me) => Pos -> DatalogProgram -> String -> me Constructor
+checkConstructor :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> me Constructor
 checkConstructor p d c = case lookupConstructor d c of
                               Nothing   -> err d p $ "Unknown constructor: " ++ c
                               Just cons -> return cons
 
-getConstructor :: DatalogProgram -> String -> Constructor
+getConstructor :: DatalogProgram' name -> String -> Constructor
 getConstructor d c = fromJust $ lookupConstructor d c
 
-lookupRelation :: DatalogProgram -> String -> Maybe Relation
+lookupRelation :: DatalogProgram' name -> String -> Maybe Relation
 lookupRelation d n = M.lookup n $ progRelations d
 
-checkRelation :: (MonadError String me) => Pos -> DatalogProgram -> String -> me Relation
+checkRelation :: (MonadError String me) => Pos -> DatalogProgram' name -> String -> me Relation
 checkRelation p d n = case lookupRelation d n of
                            Nothing  -> err d p $ "Unknown relation: " ++ n
                            Just rel -> return rel
 
-getRelation :: DatalogProgram -> String -> Relation
+getRelation :: DatalogProgram' name -> String -> Relation
 getRelation d n = fromJust $ lookupRelation d n
 
 arg2v :: Function -> FuncArg -> Var
@@ -154,13 +154,13 @@ arg2v f a = ArgVar f (name a)
 
 -- All variables visible in 'ctx'.  This function is safe to call before
 -- type checking.
-ctxAllVars :: DatalogProgram -> ECtx -> [Var]
+ctxAllVars :: DatalogProgram' name -> ECtx -> [Var]
 ctxAllVars d ctx = let (lvs, rvs) = ctxVars' d ctx False in lvs ++ rvs
 
 -- All variables visible in 'ctx', classified into (writable, read-only)
 -- variables.
 -- This function is _unsafe_ to use before type inference.
-ctxVars :: DatalogProgram -> ECtx -> ([Var], [Var])
+ctxVars :: DatalogProgram' name -> ECtx -> ([Var], [Var])
 ctxVars d ctx = ctxVars' d ctx True
 
 -- All variables available in the scope: (l-vars, read-only vars).
@@ -169,7 +169,7 @@ ctxVars d ctx = ctxVars' d ctx True
 -- to determine variable types (i.e., it has been through type inference).
 -- When false, `ctxVars` may misclassify variables, so it should only be
 -- invoked this way in situations where variable mutability does not matter.
-ctxVars' :: DatalogProgram -> ECtx -> Bool -> ([Var], [Var])
+ctxVars' :: DatalogProgram' name -> ECtx -> Bool -> ([Var], [Var])
 ctxVars' d ctx with_types =
     case ctx of
          CtxTop                   -> ([], [])

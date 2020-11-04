@@ -59,18 +59,18 @@ rulePPPrefix rl len = commaSep $ map pp $ take len $ ruleRHS rl
 
 -- | New variables declared in the 'i'th conjunct in the right-hand
 -- side of a rule.
-ruleRHSNewVars :: DatalogProgram -> Rule -> Int -> [Var]
+ruleRHSNewVars :: DatalogProgram' name -> Rule -> Int -> [Var]
 ruleRHSNewVars d rule idx =
     ruleRHSVars' d rule idx \\ ruleRHSVars' d rule (idx-1)
 
 -- | Variables visible in the 'i'th conjunct in the right-hand side of
 -- a rule.  All conjuncts before 'i' must be validated before calling this
 -- function.
-ruleRHSVars :: DatalogProgram -> Rule -> Int -> [Var]
+ruleRHSVars :: DatalogProgram' name -> Rule -> Int -> [Var]
 ruleRHSVars d rl i = ruleRHSVars' d rl (i-1)
 
 -- Variables visible _after_ 'i'th conjunct.
-ruleRHSVars' :: DatalogProgram -> Rule -> Int -> [Var]
+ruleRHSVars' :: DatalogProgram' name -> Rule -> Int -> [Var]
 ruleRHSVars' _ _  i | i < 0 = []
 ruleRHSVars' d rl i =
     case ruleRHS rl !! i of
@@ -93,20 +93,20 @@ ruleRHSVars' d rl i =
     where
     vs = ruleRHSVars d rl i
 
-ruleGroupByKeyType :: DatalogProgram -> Rule -> Int -> Type
+ruleGroupByKeyType :: DatalogProgram' name -> Rule -> Int -> Type
 ruleGroupByKeyType d rl idx =
     exprType d gctx $ rhsGroupBy $ ruleRHS rl !! idx
     where
     gctx = CtxRuleRGroupBy rl idx
 
-ruleGroupByValType :: DatalogProgram -> Rule -> Int -> Type
+ruleGroupByValType :: DatalogProgram' name -> Rule -> Int -> Type
 ruleGroupByValType d rl idx =
     exprType d ctx $ rhsProject $ ruleRHS rl !! idx
     where
     ctx = CtxRuleRProject rl idx
 
 -- | Variables used in a RHS term of a rule.
-ruleRHSTermVars :: DatalogProgram -> Rule -> Int -> [Var]
+ruleRHSTermVars :: DatalogProgram' name -> Rule -> Int -> [Var]
 ruleRHSTermVars d rl i =
     case ruleRHS rl !! i of
          RHSLiteral{..}   -> exprFreeVars d (CtxRuleRAtom rl i) $ atomVal rhsAtom
@@ -117,11 +117,11 @@ ruleRHSTermVars d rl i =
                                    exprFreeVars d (CtxRuleRProject rl i) rhsProject
 
 -- | All variables visible after the last RHS clause of the rule
-ruleVars :: DatalogProgram -> Rule -> [Var]
+ruleVars :: DatalogProgram' name -> Rule -> [Var]
 ruleVars d rl@Rule{..} = ruleRHSVars d rl (length ruleRHS)
 
 -- | Variables used in the head of the rule
-ruleLHSVars :: DatalogProgram -> Rule -> [Var]
+ruleLHSVars :: DatalogProgram' name -> Rule -> [Var]
 ruleLHSVars d rl =
     nub
     $ concat
@@ -194,7 +194,7 @@ ruleIsDistinctByConstruction d rl@Rule{..} head_idx = f True 0
 
 -- | Checks if a rule (more precisely, the given head of the rule) is part of a
 -- recursive fragment of the program.
-ruleHeadIsRecursive :: DatalogProgram -> Rule -> Int -> Bool
+ruleHeadIsRecursive :: DatalogProgram' name -> Rule -> Int -> Bool
 ruleHeadIsRecursive d Rule{..} head_idx =
     let head_atom = ruleLHS !! head_idx in
     any (relsAreMutuallyRecursive d (atomRelation head_atom))
@@ -203,6 +203,6 @@ ruleHeadIsRecursive d Rule{..} head_idx =
 
 -- | Checks if any head of the rule is part of a
 -- recursive fragment of the program.
-ruleIsRecursive :: DatalogProgram -> Rule -> Bool
+ruleIsRecursive :: DatalogProgram' name -> Rule -> Bool
 ruleIsRecursive d rl@Rule{..} =
     any (ruleHeadIsRecursive d rl) [0 .. length ruleLHS - 1]

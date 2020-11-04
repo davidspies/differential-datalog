@@ -68,7 +68,7 @@ import {-# SOURCE #-} Language.DifferentialDatalog.Rule
 import {-# SOURCE #-} Language.DifferentialDatalog.Type
 
 -- | Map function 'fun' over all expressions in a program
-progExprMapCtxM :: (Monad m) => DatalogProgram -> (ECtx -> ENode -> m Expr) -> m DatalogProgram
+progExprMapCtxM :: (Monad m) => DatalogProgram' name -> (ECtx -> ENode -> m Expr) -> m (DatalogProgram' name)
 progExprMapCtxM d fun = do
     rels' <- traverse (relExprMapCtxM fun) $ progRelations d
     idxs' <- traverse (\idx -> do atom' <- atomExprMapCtxM fun (CtxIndex idx) (idxAtom idx)
@@ -117,12 +117,12 @@ rhsExprMapCtxM fun r rhsidx i@RHSInspect{}   = do
     e <- exprFoldCtxM fun (CtxRuleRInspect r rhsidx) (rhsInspectExpr i)
     return i{rhsInspectExpr = e}
 
-progExprMapCtx :: DatalogProgram -> (ECtx -> ENode -> Expr) -> DatalogProgram
+progExprMapCtx :: DatalogProgram' name -> (ECtx -> ENode -> Expr) -> DatalogProgram' name
 progExprMapCtx d fun = runIdentity $ progExprMapCtxM d  (\ctx e -> return $ fun ctx e)
 
 
 -- | Apply function to all types referenced in the program
-progTypeMapM :: (Monad m) => DatalogProgram -> (Type -> m Type) -> m DatalogProgram
+progTypeMapM :: (Monad m) => DatalogProgram' name -> (Type -> m Type) -> m (DatalogProgram' name)
 progTypeMapM d@DatalogProgram{..} fun = do
     ts <- traverse(\(TypeDef p atrs n a t) -> TypeDef p atrs n a <$> mapM (typeMapM fun) t) progTypedefs
     fs <- traverse (mapM (\f -> do ret <- typeMapM fun $ funcType f
@@ -158,11 +158,11 @@ hotypeTypeMapM hot@HOTypeFunction{..} fun = do
     as  <- mapM (\f -> setType f <$> (typeMapM fun $ typ f)) hotArgs
     return hot { hotArgs = as, hotType = ret }
 
-progTypeMap :: DatalogProgram -> (Type -> Type) -> DatalogProgram
+progTypeMap :: DatalogProgram' name -> (Type -> Type) -> DatalogProgram' name
 progTypeMap d fun = runIdentity $ progTypeMapM d (return . fun)
 
 -- | Apply function to all rule RHS terms in the program
-progRHSMapM :: (Monad m) => DatalogProgram -> (RuleRHS -> m RuleRHS) -> m DatalogProgram
+progRHSMapM :: (Monad m) => DatalogProgram' name -> (RuleRHS -> m RuleRHS) -> m (DatalogProgram' name)
 progRHSMapM d fun = do
     rs <- mapM (\r -> do
                  rhs <- mapM fun $ ruleRHS r
@@ -170,11 +170,11 @@ progRHSMapM d fun = do
                $ progRules d
     return d { progRules = rs }
 
-progRHSMap :: DatalogProgram -> (RuleRHS -> RuleRHS) -> DatalogProgram
+progRHSMap :: DatalogProgram' name -> (RuleRHS -> RuleRHS) -> DatalogProgram' name
 progRHSMap d fun = runIdentity $ progRHSMapM d (return . fun)
 
 -- | Apply function to all atoms in the program
-progAtomMapM :: (Monad m) => DatalogProgram -> (Atom -> m Atom) -> m DatalogProgram
+progAtomMapM :: (Monad m) => DatalogProgram' name -> (Atom -> m Atom) -> m (DatalogProgram' name)
 progAtomMapM d fun = do
     rs <- mapM (\r -> do
                  lhs <- mapM fun $ ruleLHS r
@@ -190,11 +190,11 @@ progAtomMapM d fun = do
     return d { progRules = rs
              , progIndexes = is }
 
-progAtomMap :: DatalogProgram -> (Atom -> Atom) -> DatalogProgram
+progAtomMap :: DatalogProgram' name -> (Atom -> Atom) -> DatalogProgram' name
 progAtomMap d fun = runIdentity $ progAtomMapM d (return . fun)
 
 -- | Apply function to all attributes in the program.
-progAttributeMapM :: (Monad m) => DatalogProgram -> (Attribute -> m Attribute) -> m DatalogProgram
+progAttributeMapM :: (Monad m) => DatalogProgram' name -> (Attribute -> m Attribute) -> m (DatalogProgram' name)
 progAttributeMapM d fun = do
     tdefs' <- M.traverseWithKey (\_ tdef@TypeDef{..} -> do
         atrs' <- mapM fun tdefAttrs
@@ -250,7 +250,7 @@ type DepGraph = G.Gr DepGraphNode Bool
 --
 -- Assumes that rules and relations have been validated before calling
 -- this function.
-progDependencyGraph :: DatalogProgram -> DepGraph
+progDependencyGraph :: DatalogProgram' name -> DepGraph
 progDependencyGraph DatalogProgram{..} = G.insEdges (edges ++ apply_edges) g1
     where
     g0 = G.insNodes (zip [0..] $ map DepNodeRel $ map name $ M.elems progRelations) G.empty
@@ -281,14 +281,14 @@ depGraphToDot gr =
     }
 
 -- convert all intermediate relations into output relations
-progOutputInternalRelations :: DatalogProgram -> DatalogProgram
+progOutputInternalRelations :: DatalogProgram' name -> DatalogProgram' name
 progOutputInternalRelations d =
   d { progRelations = M.map
       (\r -> r { relRole = if relRole r == RelInternal
                            then RelOutput else relRole r }) $ progRelations d }
 
 -- create an output relation for each input relation
-progMirrorInputRelations :: DatalogProgram -> String -> DatalogProgram
+progMirrorInputRelations :: DatalogProgram' name -> String -> DatalogProgram' name
 progMirrorInputRelations d prefix =
   let
     inputRels = M.toList $ M.filter (\r -> relRole r == RelInput) $ progRelations d
@@ -311,7 +311,7 @@ progMirrorInputRelations d prefix =
          progRules     = (progRules d) ++ rules }
 
 -- Perform datalog program transform by injecting debugging hooks
-progInjectDebuggingHooks :: DatalogProgram -> DatalogProgram
+progInjectDebuggingHooks :: DatalogProgram' name -> DatalogProgram' name
 progInjectDebuggingHooks d =
   let
     rules = progRules d

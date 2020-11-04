@@ -19,14 +19,14 @@ exprCollectM :: (Monad m) => (ExprNode b -> m b) -> (b -> b -> b) -> Expr -> m b
 exprCollectCtx :: (ECtx -> ExprNode b -> b) -> (b -> b -> b) -> ECtx -> Expr -> b
 exprCollect :: (ExprNode b -> b) -> (b -> b -> b) -> Expr -> b
 exprVarOccurrences :: ECtx -> Expr -> [(String, ECtx)]
-exprVars :: DatalogProgram -> ECtx -> Expr -> [Var]
-exprVarDecls :: DatalogProgram -> ECtx -> Expr -> [Var]
-isLVar :: DatalogProgram -> ECtx -> String -> Bool
+exprVars :: DatalogProgram' name -> ECtx -> Expr -> [Var]
+exprVarDecls :: DatalogProgram' name -> ECtx -> Expr -> [Var]
+isLVar :: DatalogProgram' name -> ECtx -> String -> Bool
 exprIsPattern :: Expr -> Bool
-exprIsDeconstruct :: DatalogProgram -> Expr -> Bool
-exprIsVarOrFieldLVal :: DatalogProgram -> ECtx -> Expr -> Bool
-exprIsInjective :: DatalogProgram -> ECtx -> S.Set Var -> Expr -> Bool
+exprIsDeconstruct :: DatalogProgram' name -> Expr -> Bool
+exprIsVarOrFieldLVal :: DatalogProgram' name -> ECtx -> Expr -> Bool
+exprIsInjective :: DatalogProgram' name -> ECtx -> S.Set Var -> Expr -> Bool
 exprContainsPHolders :: Expr -> Bool
 exprTypeMapM :: (Monad m) => (Type -> m Type) -> Expr -> m Expr
-exprIsPure :: DatalogProgram -> ECtx -> Expr -> Bool
-exprFreeVars :: DatalogProgram -> ECtx -> Expr -> [Var]
+exprIsPure :: DatalogProgram' name -> ECtx -> Expr -> Bool
+exprFreeVars :: DatalogProgram' name -> ECtx -> Expr -> [Var]

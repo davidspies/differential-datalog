@@ -29,6 +29,7 @@ Description: Compile 'DatalogProgram' to Rust.  See program.rs for corresponding
 -}
 
 module Language.DifferentialDatalog.Compile (
+    Scope(..),
     compile,
     rustProjectDir,
     mkConstructorName,
@@ -36,7 +37,8 @@ module Language.DifferentialDatalog.Compile (
     tupleStruct,
     rnameFlat,
     rnameScoped,
-    recordAfterPrefix
+    recordAfterPrefix,
+    progTypes
 ) where
 
 import Prelude hiding((<>), readFile, writeFile)
@@ -112,6 +114,9 @@ wEIGHT_VAR = "__weight"
 inTypesModule :: ECtx -> Bool
 inTypesModule ctx = any ctxIsFunc $ ctxAncestors ctx
 
+typesScopeFromCtx :: DatalogProgram -> ECtx -> Scope
+typesScopeFromCtx d ctx = progScope d (inTypesModule ctx)
+
 -- Extract static template header before the "/*- !!!!!!!!!!!!!!!!!!!! -*/"
 -- separator from file; substitute "datalog_example" with 'specname' in
 -- the header.
@@ -135,22 +140,69 @@ mainHeader :: String -> Doc
 mainHeader specname = header (BS.unpack $ $(embedFile "rust/template/src/lib.rs")) specname
 
 -- Top-level 'Cargo.toml'.
-mainCargo :: (?cfg::Config) => String -> [String] -> String -> Doc
+mainCargo :: (?cfg :: Config) => String -> [String] -> String -> Doc
 mainCargo specname crate_types toml_footer =
-    (pp $ replace "datalog_example" specname template) $$
-    "crate-type = [" <> (hsep $ punctuate "," $ map (\t -> "\"" <> pp t <> "\"") $ "rlib" : crate_types) <> "]\n" $$
-    text toml_footer
-    where
-    template = (if confNestedTS32 ?cfg
-                then replace "[dependencies.differential_datalog]" "[dependencies.differential_datalog]\nfeatures=[\"nested_ts_32\"]"
-                else id)
-               $ BS.unpack $ $(embedFile "rust/template/Cargo.toml")
+  (pp $ replace "datalog_example" specname template)
+    $$ "crate-type = [" <> (hsep $ punctuate "," $ map (\t -> "\"" <> pp t <> "\"") $ "rlib" : crate_types) <> "]\n"
+    $$ text toml_footer
+  where
+    template =
+      ( if confNestedTS32 ?cfg
+          then replace "[dependencies.differential_datalog]" "[dependencies.differential_datalog]\nfeatures=[\"nested_ts_32\"]"
+          else id
+      )
+        $ adjustLocs ".." $ excludeUnsupported $
+          BS.unpack $ $(embedFile "rust/template/Cargo.toml")
 
 -- 'types/Cargo.toml' - imports Rust dependencies.
-typesCargo :: String -> Doc -> Doc
+typesCargo :: (?cfg :: Config) => String -> Doc -> Doc
 typesCargo specname toml_code =
-    (pp $ replace "datalog_example" specname $ BS.unpack $ $(embedFile "rust/template/types/Cargo.toml")) $$
-    "" $$ toml_code
+  ( pp $
+      replace "datalog_example" specname $
+        adjustLocs "../.." $
+          BS.unpack $ $(embedFile "rust/template/types/Cargo.toml")
+  )
+    $$ ""
+    $$ toml_code
+
+replacePath :: String -> FilePath -> String -> String
+replacePath depline newpath s = case break (== depline) ls of
+  (before, []) -> unlines before
+  (before, [l]) -> unlines (before ++ [l])
+  (before, l : _pathline : after) ->
+    unlines (before ++ l : ("path = \"" ++ newpath ++ "\"") : after)
+  where
+    ls = lines s
+
+adjustedDeps :: [(String, String)]
+adjustedDeps =
+  [ ("cmd_parser", "cmd_parser"),
+    ("differential_datalog", "differential_datalog"),
+    ("ddlog_ovsdb_adapter", "ovsdb")
+  ]
+
+adjustLocs :: (?cfg :: Config) => String -> String -> String
+adjustLocs pref = foldr (.) id $
+  case confDDLoc ?cfg of
+    Just loc ->
+      [ replacePath
+          ("[dependencies." ++ k ++ "]")
+          (localize pref loc </> v)
+        | (k, v) <- adjustedDeps
+      ]
+    Nothing -> []
+
+localize :: FilePath -> FilePath -> FilePath
+localize pref orig = if isAbsolute orig then orig else pref </> orig
+
+unsupported :: [String]
+unsupported = ["flatbuf =", "ovsdb ="]
+
+excludeUnsupported :: String -> String
+excludeUnsupported =
+  unlines
+    . filter (\l -> not $ any (\x -> and $ zipWith (==) x l) unsupported)
+    . lines
 
 rustProjectDir :: String -> String
 rustProjectDir specname = specname ++ "_ddlog"
@@ -228,7 +280,13 @@ rustLibFiles specname =
         , (dir </> "ovsdb/Cargo.toml"                                     , $(embedFile "rust/template/ovsdb/Cargo.toml"))
         , (dir </> "ovsdb/lib.rs"                                         , $(embedFile "rust/template/ovsdb/lib.rs"))
         , (dir </> "ovsdb/test.rs"                                        , $(embedFile "rust/template/ovsdb/test.rs"))
-        , (dir </> "types/ddlog_log.rs"                                   , $(embedFile "rust/template/types/ddlog_log.rs"))
+        ]
+    where dir = rustProjectDir specname
+
+rustOtherFiles :: String -> [(String, String)]
+rustOtherFiles specname =
+    map (mapSnd (BS.unpack)) $
+        [ (dir </> "types/ddlog_log.rs"                                   , $(embedFile "rust/template/types/ddlog_log.rs"))
         , (dir </> "types/closure.rs"                                     , $(embedFile "rust/template/types/closure.rs"))
         , (dir </> ".cargo/config"                                        , $(embedFile "rust/template/.cargo/config"))
         ]
@@ -360,12 +418,22 @@ emptyCompilerState = CompilerState {
 rnameFlat :: String -> Doc
 rnameFlat = pp . replace "::" "_"
 
+data Scope = Local | Types String
+
+progTypes :: DatalogProgram -> Scope
+progTypes = Types . progName
+
 -- Types and functions are stored in Rust modules that mirror the DDlog
 -- module hierarchy.
 -- 'local' is true iff the name is being used in the same crate where it was
 -- declared, i.e., the 'types' crate.
-rnameScoped :: Bool -> String -> Doc
-rnameScoped local n = rnameScoped' (if local then "crate" else "::types") n
+scopeCrate :: Scope -> String
+scopeCrate = \case
+    Local -> "crate"
+    Types specname -> "::" ++ specname ++ "_types"
+
+rnameScoped :: Scope -> String -> Doc
+rnameScoped = rnameScoped' . scopeCrate
 
 rnameScoped' :: String -> String -> Doc
 rnameScoped' scope n = pp scope <> "::" <> pp n
@@ -463,15 +531,14 @@ tuple :: [Doc] -> Doc
 tuple [x] = x
 tuple xs = parens $ hsep $ punctuate comma xs
 
-tupleTypeName :: Bool -> [a] -> Doc
-tupleTypeName local xs =
-    tupleTypeName' (if local then "crate" else "::types") xs
+tupleTypeName :: Scope -> [a] -> Doc
+tupleTypeName = tupleTypeName' . scopeCrate
 
 tupleTypeName' :: String -> [a] -> Doc
 tupleTypeName' crate xs =
     pp crate <> "::" <> pp mOD_STD <> "::tuple" <> pp (length xs)
 
-tupleStruct :: Bool -> [Doc] -> Doc
+tupleStruct :: Scope -> [Doc] -> Doc
 tupleStruct _     [x]                  = x
 tupleStruct local xs  | length xs == 0 = tuple xs
                       | otherwise      = tupleTypeName local xs <> tuple xs
@@ -485,16 +552,14 @@ isStructType t                                  = error $ "Compile.isStructType 
 
 -- 'local' is true iff the constructor is being used in the same crate where it was
 -- declared, i.e., the 'types' crate.
-mkConstructorName :: Bool -> String -> Type -> String -> Doc
-mkConstructorName local tname t c =
+mkConstructorName :: Scope -> String -> Type -> String -> Doc
+mkConstructorName scope tname t c =
     if isStructType t
-       then rnameScoped local tname
-       else rnameScoped local tname <> "::" <> nameLocal c
+       then rnameScoped scope tname
+       else rnameScoped scope tname <> "::" <> nameLocal c
 
 -- | Create a compilable Cargo crate.  If the crate already exists, only writes files
 -- modified by the recompilation.
---
--- 'specname' - will be used as Cargo package and library names
 --
 -- 'modules' - list of all DDlog modules used in the original program. This function
 -- will generate a Rust module for each DDlog module and place it in the 'types' crate.
@@ -507,8 +572,9 @@ mkConstructorName local tname t c =
 --
 -- 'crate_types' - list of Cargo library crate types, e.g., [\"staticlib\"],
 --                  [\"cdylib\"], [\"staticlib\", \"cdylib\"]
-compile :: (?cfg :: Config) => DatalogProgram -> String -> [DatalogModule] -> M.Map ModuleName Doc -> Doc -> FilePath -> [String] -> IO ()
-compile d_unoptimized specname modules rs_code toml_code dir crate_types = do
+compile :: (?cfg :: Config) => DatalogProgram -> [DatalogModule] -> M.Map ModuleName Doc -> Doc -> FilePath -> [String] -> IO ()
+compile d_unoptimized modules rs_code toml_code dir crate_types = do
+    let specname = progName d_unoptimized
     -- Create dir if it does not exist.
     createDirectoryIfMissing True (dir </> rustProjectDir specname)
     -- dump dependency graph to file
@@ -518,20 +584,24 @@ compile d_unoptimized specname modules rs_code toml_code dir crate_types = do
     let d = addDummyRel $ optimize d_unoptimized
     when (confDumpDebug ?cfg) $
         writeFile (replaceExtension (confDatalogFile ?cfg) ".opt.ast") (show d)
-    let (types, main) = compileLib d specname modules rs_code
+    let (types, main) = compileLib d modules rs_code
     -- Produce flatbuffer bindings if either the java or rust bindings are enabled
-    compileFlatBufferBindings d specname (dir </> rustProjectDir specname)
+    compileFlatBufferBindings d (dir </> rustProjectDir specname)
     -- Substitute specname in template files; write files if changed.
     mapM_ (\(path, content) -> do
             let path' = dir </> path
                 content' = replace "datalog_example" specname content
             updateFile path' content')
           $ templateFiles specname
+    when (isNothing (confDDLoc ?cfg)) $
     -- Update rustLibFiles if they changed.
-    mapM_ (\(path, content) -> do
+        forM_ (rustLibFiles specname) $ \(path, content) -> do
             let path' = dir </> path
-            updateFile path' content)
-         $ rustLibFiles specname
+            updateFile path' content
+    -- Update rustOtherFiles if they changed.
+    forM_ (rustOtherFiles specname) $ \(path, content) -> do
+            let path' = dir </> path
+            updateFile path' content
     -- Generate lib files if changed.
     updateFile (dir </> rustProjectDir specname </> "types/Cargo.toml") (render $ typesCargo specname toml_code)
     mapM_ (\(mname, mtext) -> updateFile (dir </> rustProjectDir specname </> "types" </> moduleNameToPath mname) $ render mtext)
@@ -576,15 +646,15 @@ compile d_unoptimized specname modules rs_code toml_code dir crate_types = do
 -- * 'value' crate that declares relations and value types.
 -- * 'main' crate that contains rule definitions in Rust and imports the other two.
 --
-compileLib :: (?cfg::Config) => DatalogProgram -> String -> [DatalogModule] -> M.Map ModuleName Doc -> (M.Map ModuleName Doc, Doc)
-compileLib d specname modules rs_code = (typeLib, mainLib)
+compileLib :: (?cfg::Config) => DatalogProgram -> [DatalogModule] -> M.Map ModuleName Doc -> (M.Map ModuleName Doc, Doc)
+compileLib d modules rs_code = (typeLib, mainLib)
     where
     modules' = addMissingModules modules
     statics = collectStatics d
     -- Start with empty modules, except the main module that contains static declarations.
     typeLib0 = M.fromList $ map (\m -> if moduleName m == mainModuleName
-                                       then (moduleName m, typesLibHeader specname $+$ mkStatics d statics)
-                                       else (moduleName m, typesModuleHeader specname)) modules'
+                                       then (moduleName m, typesLibHeader (progName d) $+$ mkStatics d statics)
+                                       else (moduleName m, typesModuleHeader (progName d))) modules'
     -- Add submodule lists.
     typeLibMods = M.mapWithKey (\mname mtext ->
                                  let children = filter (\other_mod -> other_mod `moduleIsChildOf` mname)
@@ -605,7 +675,7 @@ compileLib d specname modules rs_code = (typeLib, mainLib)
     -- types to Rust and fold over the resulting set.
     typeLib = S.foldl (\libs t -> M.adjust ($+$ "::differential_datalog::decl_ddval_convert!{" <> pp t <> "}") mainModuleName libs) typeLibAllFuncs
                       $ S.map (render . mkType d True) $ S.filter (typeNeedsDDValConvert d) $ cTypes cstate
-    mainLib = mainHeader specname           $+$
+    mainLib = mainHeader (progName d)       $+$
               mkUpdateDeserializer d        $+$
               mkDDValueFromRecord d         $+$ -- Function to convert cmd_parser::Record to Value
               mkIndexesIntoArrId d cstate   $+$
@@ -842,7 +912,7 @@ mkTypedef d tdef@TypeDef{..} =
             "__formatter.write_str(\"}\")")
         $$
         "}"
-        where cname = mkConstructorName True tdefName (fromJust tdefType) (name c)
+        where cname = mkConstructorName Local tdefName (fromJust tdefType) (name c)
 
     default_enum =
               "impl" <+> targs_def <+> "::std::default::Default for" <+> nameLocal tdefName <> targs <+> "{"   $$
@@ -851,7 +921,7 @@ mkTypedef d tdef@TypeDef{..} =
               "    }"                                                                                          $$
               "}"
         where c = head $ typeCons $ fromJust tdefType
-              cname = mkConstructorName True tdefName (fromJust tdefType) (name c)
+              cname = mkConstructorName Local tdefName (fromJust tdefType) (name c)
               def_args = commaSep $ map (\a -> (pp $ name a) <+> ": ::std::default::Default::default()") $ consArgs c
 
 -- Generate FromRecord trait implementation for a struct type.
@@ -1423,7 +1493,7 @@ compileApplyNode :: (?cfg::Config) => DatalogProgram -> Apply -> ProgNode
 compileApplyNode d Apply{..} = ApplyNode $
     "{fn transformer() -> Box<dyn for<'a> Fn(&mut FnvHashMap<RelId, collection::Collection<scopes::Child<'a, worker::Worker<communication::Allocator>, TS>,DDValue,Weight>>)> {" $$
     "    Box::new(|collections| {"                                                                                                                             $$
-    "        let (" <> commaSep outputs <> ") =" <+> rnameScoped False applyTransformer <> (parens $ commaSep inputs) <> ";"                                   $$
+    "        let (" <> commaSep outputs <> ") =" <+> rnameScoped (progTypes d) applyTransformer <> (parens $ commaSep inputs) <> ";"                                   $$
     (nest' $ nest' $ vcat update_collections)                                                                                                                  $$
     "    })"                                                                                                                                                   $$
     "}; transformer}"
@@ -1431,7 +1501,7 @@ compileApplyNode d Apply{..} = ApplyNode $
     Transformer{..} = getTransformer d applyTransformer
     inputs = concatMap (\(i, ti) ->
                          if hotypeIsFunction (hofType ti)
-                            then [rnameScoped False i]
+                            then [rnameScoped (progTypes d) i]
                             else ["collections.get(&(" <> relId i <> ")).unwrap()", extractValue d (relType $ getRelation d i)])
                        (zip applyInputs transInputs)
              ++
@@ -1736,10 +1806,10 @@ mkFilterMap d prefix rl idx = do
 mkInspect :: (?cfg::Config, ?statics::Statics) => DatalogProgram -> Doc -> Rule -> Int -> Expr -> Bool -> CompilerMonad Doc
 mkInspect d prefix rl idx e input_val = do
     -- Inspected
-    let weight = "let ddlog_weight = &(" <> wEIGHT_VAR <+> "as" <+> rnameScoped False wEIGHT_TYPE <> ");"
+    let weight = "let ddlog_weight = &(" <> wEIGHT_VAR <+> "as" <+> rnameScoped (progTypes d) wEIGHT_TYPE <> ");"
     let timestamp = if ruleIsRecursive d rl
-        then "let ddlog_timestamp = &" <> rnameScoped False nESTED_TS_TYPE <> "{epoch:" <+> tIMESTAMP_VAR <> ".0 as" <+> rnameScoped False ePOCH_TYPE <> ", iter:" <+> rnameScoped False iTERATION_TYPE <> "::from(" <> tIMESTAMP_VAR <> ".1)};"
-        else "let ddlog_timestamp = &(" <> tIMESTAMP_VAR <> ".0 as" <+> rnameScoped False ePOCH_TYPE <> ");"
+        then "let ddlog_timestamp = &" <> rnameScoped (progTypes d) nESTED_TS_TYPE <> "{epoch:" <+> tIMESTAMP_VAR <> ".0 as" <+> rnameScoped (progTypes d) ePOCH_TYPE <> ", iter:" <+> rnameScoped (progTypes d) iTERATION_TYPE <> "::from(" <> tIMESTAMP_VAR <> ".1)};"
+        else "let ddlog_timestamp = &(" <> tIMESTAMP_VAR <> ".0 as" <+> rnameScoped (progTypes d) ePOCH_TYPE <> ");"
     let inspected = (braces $ mkExpr d (CtxRuleRInspect rl idx) e EVal) <> ";"
     let ifun = braces'
                 $ weight $$
@@ -1772,7 +1842,7 @@ mkGroupBy d filters input_val rl@Rule{..} idx = do
     -- * Create 'struct Group'
     -- * Apply filters following group_by.
     -- * Return variables still in scope after the last filter.
-    let grp = rnameScoped False gROUP_TYPE <> "::new_by_ref(" <> (mkExpr d gctx rhsGroupBy EVal) <> "," <+> gROUP_VAR <> "," <+> project <> ")"
+    let grp = rnameScoped (progTypes d) gROUP_TYPE <> "::new_by_ref(" <> (mkExpr d gctx rhsGroupBy EVal) <> "," <+> gROUP_VAR <> "," <+> project <> ")"
     let aggregate = "let ref" <+> pp rhsVar <+> "= unsafe{" <> grp <> "};"
     let post_filters = mkFilters d rl idx
         last_idx = idx + length post_filters
@@ -1821,7 +1891,7 @@ openTuple :: (?cfg::Config) => DatalogProgram -> Doc -> [Var] -> CompilerMonad D
 openTuple d var vs = do
     let t = tTuple $ map (varType d) vs
     t' <- addRelType d t
-    let pattern = tupleStruct False $ map (("ref" <+>) . pp . name) vs
+    let pattern = tupleStruct (progTypes d) $ map (("ref" <+>) . pp . name) vs
     return $ "let" <+> pattern <+> "= *unsafe {<" <> t' <> ">::from_ddvalue_ref(" <+> var <+> ") };"
 
 -- Type 'typ x' is used as the value type of a relation.  Add it to
@@ -1887,7 +1957,7 @@ mkTupleValue :: (?cfg::Config, ?statics::Statics) => DatalogProgram -> [(Expr, E
 mkTupleValue d es = do
     let t = tTuple $ map (\(e, ctx) -> exprType'' d ctx e) es
     _ <- addRelType d t
-    return $ (parens $ tupleStruct False $ map (\(e, ctx) -> mkExpr d ctx e EVal) es) <> ".into_ddvalue()"
+    return $ (parens $ tupleStruct (progTypes d) $ map (\(e, ctx) -> mkExpr d ctx e EVal) es) <> ".into_ddvalue()"
 
 mkVarsTupleValue :: (?cfg::Config) => DatalogProgram -> [(Var, EKind)] -> CompilerMonad Doc
 mkVarsTupleValue d vs = do
@@ -1895,13 +1965,13 @@ mkVarsTupleValue d vs = do
     _ <- addRelType d t
     let clone (v, EReference) = cloneRef $ pp $ name v
         clone (v, _) = (pp $ name v) <> ".clone()"
-    return $ (parens $ tupleStruct False $ map clone vs) <> ".into_ddvalue()"
+    return $ (parens $ tupleStruct (progTypes d) $ map clone vs) <> ".into_ddvalue()"
 
 mkFieldTupleValue :: (?cfg::Config) => DatalogProgram -> [Field] -> CompilerMonad Doc
 mkFieldTupleValue d fs = do
     let t = tTuple $ map typ fs
     _ <- addRelType d t
-    return $ (parens $ tupleStruct False $ map (cloneRef . pp . name) fs) <> ".into_ddvalue()"
+    return $ (parens $ tupleStruct (progTypes d) $ map (cloneRef . pp . name) fs) <> ".into_ddvalue()"
 
 -- Compile all contiguous RHSCondition terms following 'last_idx'
 mkFilters :: (?statics::Statics) => DatalogProgram -> Rule -> Int -> [Doc]
@@ -2232,7 +2302,7 @@ mkHead d prefix rl = do
 
 -- Variables in the RHS of the rule declared before or in i'th term
 -- and used after the term.
-rhsVarsAfter :: DatalogProgram -> Rule -> Int -> [Var]
+rhsVarsAfter :: DatalogProgram' name -> Rule -> Int -> [Var]
 rhsVarsAfter d rl i =
     case ruleRHS rl !! i of
          -- Inspect operators cannot change the collection it inspects. No variables are dropped.
@@ -2410,7 +2480,7 @@ mkPatExpr' d inkind ctx e@EStruct{..}   varkind mut  = do
     fields <- mapM (\(f, E e') -> (f,) <$> mkPatExpr' d inkind (CtxStruct e ctx f) e' varkind mut) exprStructFields
     let t = consType d exprConstructor
         struct_name = name t
-        pat = mkConstructorName (inTypesModule ctx) struct_name (fromJust $ tdefType t) exprConstructor <>
+        pat = mkConstructorName (typesScopeFromCtx d ctx) struct_name (fromJust $ tdefType t) exprConstructor <>
               (braces $ hsep $ punctuate comma $ map (\(fname, m) -> pp fname <> ":" <+> mPattern m) fields)
         cond = hsep $ intersperse "&&" $ filter (/= empty)
                                        $ map (\(_,m) -> mCond m) fields
@@ -2418,7 +2488,7 @@ mkPatExpr' d inkind ctx e@EStruct{..}   varkind mut  = do
     return $ Match pat cond subpatterns
 mkPatExpr' d inkind ctx e@ETuple{..}    varkind mut  = do
     fields <- mapIdxM (\(E f) i -> mkPatExpr' d inkind (CtxTuple e ctx i) f varkind mut) exprTupleFields
-    let pat = tupleStruct (inTypesModule ctx) $ map (pp . mPattern) fields
+    let pat = tupleStruct (typesScopeFromCtx d ctx) $ map (pp . mPattern) fields
         cond = hsep $ intersperse "&&" $ filter (/= empty)
                                        $ map (pp . mCond) fields
         subpatterns = concatMap mSubpatterns fields
@@ -2473,7 +2543,7 @@ mkExpr' d ctx e | isJust static_idx = (parens $ "&*" <> crate <> "::__STATIC_" <
     where
     e' = exprMap (E . sel3) e
     static_idx = lookupStatic d (E e') ctx ?statics
-    crate = if (inTypesModule ctx) then "crate" else "::types"
+    crate = text $ scopeCrate (typesScopeFromCtx d ctx)
 
 -- All variables are references
 mkExpr' _ _ EVar{..}    = (pp exprVar, EReference)
@@ -2620,13 +2690,13 @@ mkExpr' d ctx EStruct{..} | ctxInSetL ctx
           fieldlvals = braces $ commaSep $ map (\(fname, v) -> pp fname <> ":" <+> lval v) exprStructFields
           tdef = consType d exprConstructor
           isstruct = isStructType $ fromJust $ tdefType tdef
-          tname = rnameScoped (inTypesModule ctx) $ name tdef
+          tname = rnameScoped (typesScopeFromCtx d ctx) $ name tdef
 
 -- Tuple fields must be values
-mkExpr' _ ctx ETuple{..} | ctxInSetL ctx
-                         = (tupleStruct (inTypesModule ctx) $ map lval exprTupleFields, ELVal)
+mkExpr' d ctx ETuple{..} | ctxInSetL ctx
+                         = (tupleStruct (typesScopeFromCtx d ctx) $ map lval exprTupleFields, ELVal)
                          | otherwise
-                         = (tupleStruct (inTypesModule ctx) $ map val exprTupleFields, EVal)
+                         = (tupleStruct (typesScopeFromCtx d ctx) $ map val exprTupleFields, EVal)
 
 mkExpr' d ctx e@ESlice{..} = (mkSlice d (val exprOp, w) exprH exprL, EVal)
     where
@@ -2831,11 +2901,14 @@ mkExpr' d ctx EAs{..} | bothIntegers && narrow_from && narrow_to && width_cmp /=
 
 mkExpr' _ _ e = error $ "Compile.mkExpr': unexpected expression at " ++ show (pos e)
 
+progScope :: DatalogProgram -> Bool -> Scope
+progScope d local = if local then Local else progTypes d
+
 -- 'local' is true iff the function is being used in the same crate where it was
 -- declared, i.e., the 'types' crate.
 mkFuncName :: DatalogProgram -> Bool -> Function -> Doc
 mkFuncName d local f =
-    pp $ intercalate "::" $ (if local then "crate" else "::types") : (modulePath $ nameScope f) ++ [render $ mkFuncNameShort d f]
+    pp $ intercalate "::" $ scopeCrate (progScope d local) : (modulePath $ nameScope f) ++ [render $ mkFuncNameShort d f]
 
 -- Rust function name without the scope.
 mkFuncNameShort :: DatalogProgram -> Function -> Doc
@@ -2849,7 +2922,7 @@ mkFuncNameShort d f | length namesakes == 1 = nameLocal $ name f
 
 -- 'local' is true iff the type is being used inside the 'types' crate.
 mkType :: (WithType a) => DatalogProgram -> Bool -> a -> Doc
-mkType d local x = mkType' d (if local then "crate" else "::types") $ typ x
+mkType d local x = mkType' d (scopeCrate (progScope d local)) $ typ x
 
 mkType' :: DatalogProgram -> String -> Type -> Doc
 mkType' _ _       TBool{}                    = "bool"
@@ -3016,7 +3089,7 @@ mkInt v | v <= (toInteger (maxBound::Word128)) && v >= (toInteger (minBound::Wor
 -- of the rule.
 -- If this is the first term, then it's the atom of the RHSLiteral.
 -- Otherwise, this is the variables from rhsVarsAfter converted into an ETuple expression.
-recordAfterPrefix :: DatalogProgram -> Rule -> Int -> [Expr]
+recordAfterPrefix :: DatalogProgram' name -> Rule -> Int -> [Expr]
 recordAfterPrefix d rl i =
   if i == length (ruleRHS rl) - 1
      then  map atomVal $ ruleLHS rl

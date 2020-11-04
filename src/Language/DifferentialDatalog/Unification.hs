@@ -198,7 +198,7 @@ cIntEq ie1 ie2 kind e = if ie1' == ie2' then [] else [CIntEq ie1' ie2' kind e]
     ie1' = ieSum $ (map IVar $ ievars1 \\ ievars2) ++ if cnst < 0 then [IConst (-cnst)] else []
     ie2' = ieSum $ (map IVar $ ievars2 \\ ievars1) ++ if cnst > 0 then [IConst cnst] else []
 
-cwidthReportConflict :: (?d::DatalogProgram, MonadError String me) => Constraint -> me a
+cwidthReportConflict :: (?d::DatalogProgram' name, MonadError String me) => Constraint -> me a
 cwidthReportConflict c@(CIntEq _ _ WidthEq e) = err ?d (pos e) $ "Unsatisfiable bit-width constraint '" ++ show c ++ "' in\n" ++
                                                                    evalState (explanationShow e) M.empty
 cwidthReportConflict c@(CIntEq _ _ MutEq e) = err ?d (pos e) $ "Conflicting argument mutability attributes '" ++ show c ++ "' in\n" ++
@@ -451,7 +451,7 @@ teToType (TEFunc as r)          = tFunction (map (\(m, a) ->
 teToType te                     = error $ "Unification.teToType: non-constant type expression " ++ show te
 
 -- | Expand type aliases (similar to Type.typ'').
-teExpandAliases :: (?d::DatalogProgram) => TExpr -> TExpr
+teExpandAliases :: (?d::DatalogProgram' name) => TExpr -> TExpr
 teExpandAliases t'@(TEUser n as) =
     case tdefType tdef of
          (Just TStruct{}) -> t'
@@ -473,7 +473,7 @@ teSubstTypeArgs _     t                = t
 -- generating type inference in the body of a function, we treat its type
 -- arguments as constants.  Inferred types for variables and expressions inside
 -- the body of the function may depend on these constants.
-typeToTExpr :: (?d::DatalogProgram) => Type -> TExpr
+typeToTExpr :: (?d::DatalogProgram' name) => Type -> TExpr
 typeToTExpr TBool{}         = TEBool
 typeToTExpr TInt{}          = TEBigInt
 typeToTExpr TString{}       = TEString
@@ -490,10 +490,10 @@ typeToTExpr TFunction{..}   = TEFunc (map (\atype -> (if atypeMut atype then ICo
                                      (typeToTExpr typeRetType)
 
 -- Unwrap all layers of shared references.
-teDeref :: (?d::DatalogProgram) => TExpr -> TExpr
+teDeref :: (?d::DatalogProgram' name) => TExpr -> TExpr
 teDeref te = teDeref' $ teExpandAliases te
 
-teDeref' :: (?d::DatalogProgram) => TExpr -> TExpr
+teDeref' :: (?d::DatalogProgram' name) => TExpr -> TExpr
 teDeref' (TEExtern n [t]) | elem n sref_types = teDeref t
     where
     sref_types = map name
@@ -503,7 +503,7 @@ teDeref' t = t
 
 -- Check if type expression is a constant and if not, return an explanation.
 -- 'obj' is the object whose type 'te' describes.
-teCheckConstant :: (?d::DatalogProgram, MonadError String me) => SolverState -> TypeVar -> TExpr -> me ()
+teCheckConstant :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> TypeVar -> TExpr -> me ()
 teCheckConstant st tvar te | teIsConstant te = return ()
                         | not $ null tvars =
     -- 'te' depends on an unresolved type variable 'tv'.  So instead of
@@ -634,7 +634,7 @@ explanationDepth (ExplanationParent p) = explanationDepth (predExplanation p) + 
 
 -- Report type resolution conflict in an unsatisfiable predicate (where
 -- left and right side cannot be unified).
-predReportConflict :: (?d::DatalogProgram, MonadError String me) => SolverState -> Predicate -> me a
+predReportConflict :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> Predicate -> me a
 predReportConflict st (PEq te1 te2 explanation) =
     evalState (do ts1 <- teShow te1
                   ts2 <- teShow te2
@@ -755,10 +755,10 @@ instance Show SolverState where
 -- When 'full' is True, the function only succeeds if, after resolving all constraints,
 -- a complete typing is obtained: i.e., all variable assignments are constant expressions
 -- that don't depend on other variables.
-solve :: (MonadError String me) => DatalogProgram -> [Constraint] -> Bool -> me Typing
+solve :: (MonadError String me) => DatalogProgram' name -> [Constraint] -> Bool -> me Typing
 solve d cs full = let ?d = d in solve' (emptySolverState {solverConstraints = cs}) full
 
-solve' :: (?d::DatalogProgram, MonadError String me) => SolverState -> Bool -> me Typing
+solve' :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> Bool -> me Typing
 solve' st full | null (solverConstraints st) = do
     when full
         $ mapM_ (\(tv, te) -> teCheckConstant st tv te) $ M.toList $ solverPartialTyping st
@@ -808,10 +808,10 @@ solve' st full | null (solverConstraints st) = do
 
 -- Do _not_ normalize the constraint before unification, as swapping RHS and LHS
 -- sides can confuse the explanation
-unify :: (?d::DatalogProgram, MonadError String me) => SolverState -> Predicate -> me [Constraint]
+unify :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> Predicate -> me [Constraint]
 unify st (PEq te1 te2 e) = unify' st (PEq (teExpandAliases te1) (teExpandAliases te2) e)
 
-unify' :: (?d::DatalogProgram, MonadError String me) => SolverState -> Predicate -> me [Constraint]
+unify' :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> Predicate -> me [Constraint]
 {- Consider non-recursive cases first. -}
 
 -- Cannot learn anything from a tautology.
@@ -850,7 +850,7 @@ unify' st p@(PEq te1 te2 _) | (te1', te2') /= (te1, te2) = unify st $ PEq te1 te
     te1' = teExpandAliases te1
     te2' = teExpandAliases te2
 
-substitute :: (?d::DatalogProgram, MonadError String me) => TypeVar -> TExpr -> SolverState -> me SolverState
+substitute :: (?d::DatalogProgram' name, MonadError String me) => TypeVar -> TExpr -> SolverState -> me SolverState
 substitute v te st = do
     let te' = teExpandAliases te
     let typing' = M.map (teSubstitute v te') $ solverPartialTyping st
@@ -881,7 +881,7 @@ teSubstituteAll st (TESigned ie) = TESigned $ ieSubstituteAll st ie
 teSubstituteAll _  te = te
 
 -- Version that does not eliminate tautologies.  Useful in resolving disjunctive constraints.
-constraintSubstitute :: (?d::DatalogProgram, MonadError String me) => SolverState -> TypeVar -> TExpr -> Constraint -> me [Constraint]
+constraintSubstitute :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> TypeVar -> TExpr -> Constraint -> me [Constraint]
 constraintSubstitute _  v with (CPredicate p) = return $ map CPredicate $ predSubstitute v with p
 constraintSubstitute _  _ _    c@CIntEq{} = return [c]
 constraintSubstitute st v with c@(CLazy obj expand _ _ _) = do
@@ -894,7 +894,7 @@ constraintSubstitute st v with c@(CLazy obj expand _ _ _) = do
             <$> (expand $ teExpandAliases obj')
        else return [c]
 
-constraintSubstituteAll :: (?d::DatalogProgram) => SolverState -> Constraint -> [Constraint]
+constraintSubstituteAll :: (?d::DatalogProgram' name) => SolverState -> Constraint -> [Constraint]
 constraintSubstituteAll st (CPredicate p) = map CPredicate $ predSubstituteAll st p
 constraintSubstituteAll st (CIntEq ie1 ie2 k e) =
     cIntEq ie1' ie2' k e
@@ -917,7 +917,7 @@ predSubstituteAll st (PEq te1 te2 e) =
     te1' = teSubstituteAll st te1
     te2' = teSubstituteAll st te2
 
-substituteIVar :: (?d::DatalogProgram, MonadError String me) => IntVar -> IExpr -> SolverState -> me SolverState
+substituteIVar :: (?d::DatalogProgram' name, MonadError String me) => IntVar -> IExpr -> SolverState -> me SolverState
 substituteIVar v ie st = do
     let typing' = M.map (teSubstituteIVar v ie) $ solverPartialTyping st
     let width' = M.map (ieSubstituteIVar v ie) $ solverPartialInt st
@@ -959,7 +959,7 @@ predSubstituteIVar v with (PEq te1 te2 e) =
         te2' = teSubstituteIVar v with te2
     in if te1' == te2' then [] else [PEq te1' te2' e]
 
-constraintSubstituteIVar :: (?d::DatalogProgram, MonadError String me) => SolverState -> IntVar -> IExpr -> Constraint -> me [Constraint]
+constraintSubstituteIVar :: (?d::DatalogProgram' name, MonadError String me) => SolverState -> IntVar -> IExpr -> Constraint -> me [Constraint]
 constraintSubstituteIVar _ v with (CPredicate p)                  = return $ map CPredicate $ predSubstituteIVar v with p
 constraintSubstituteIVar _ v with (CIntEq ie1 ie2 k e)          = do
     let ie1' = ieSubstituteIVar v with ie1

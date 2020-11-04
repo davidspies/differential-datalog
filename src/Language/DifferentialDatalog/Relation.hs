@@ -51,16 +51,16 @@ import {-# SOURCE #-} Language.DifferentialDatalog.Rule
 import Language.DifferentialDatalog.DatalogProgram
 
 -- | Rules that contain given relation in their heads.
-relRules :: DatalogProgram -> String -> [Rule]
+relRules :: DatalogProgram' name -> String -> [Rule]
 relRules d rname = filter ((== rname) . atomRelation . head . ruleLHS)
                    $ progRules d
 
 -- | Transformer applications that contain given relation in their heads.
-relApplys :: DatalogProgram -> String -> [Apply]
+relApplys :: DatalogProgram' name -> String -> [Apply]
 relApplys d rname = filter (elem rname . applyOutputs)
                     $ progApplys d
 
-relIsRecursive :: DatalogProgram -> String -> Bool
+relIsRecursive :: DatalogProgram' name -> String -> Bool
 relIsRecursive d rel =
     any (\(from, to) -> elem from scc && elem to scc) $ G.edges g
     where
@@ -112,12 +112,12 @@ relIsBounded d rel =
         $ relRules d rel
 
 -- | Unique id, assigned to the relation in the generated dataflow graph
-relIdentifier :: DatalogProgram -> Relation -> Int
+relIdentifier :: DatalogProgram' name -> Relation -> Int
 relIdentifier d rel = M.findIndex (name rel) $ progRelations d
 
 -- Relations are mutually recursive, i.e., belong to the same stronly connected
 -- component of the dependency graph.
-relsAreMutuallyRecursive :: DatalogProgram -> String -> String -> Bool
+relsAreMutuallyRecursive :: DatalogProgram' name -> String -> String -> Bool
 relsAreMutuallyRecursive d rel1 rel2 | rel1 == rel2 = relIsRecursive d rel1
                                      | otherwise = elem nd2 scc
     where

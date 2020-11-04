@@ -21,7 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 -}
 
-{-# LANGUAGE FlexibleContexts, RecordWildCards, OverloadedStrings, LambdaCase #-}
+{-# LANGUAGE FlexibleContexts, RecordWildCards, OverloadedStrings, LambdaCase, DeriveFunctor, FlexibleInstances, TypeSynonymInstances #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 -- This module defines types used to construct the abstract syntax tree of a DDlog program:
@@ -134,7 +134,9 @@ module Language.DifferentialDatalog.Syntax (
         Transformer(..),
         transformerTypeVars,
         Apply(..),
-        DatalogProgram(..),
+        DatalogProgram'(..),
+        DatalogProgramBuilder,
+        DatalogProgram,
         emptyDatalogProgram,
         progStructs,
         progConstructors,
@@ -441,7 +443,7 @@ instance PP Constructor where
 instance Show Constructor where
     show = render . pp
 
-consType :: DatalogProgram -> String -> TypeDef
+consType :: DatalogProgram' name -> String -> TypeDef
 consType d c =
     fromJust
     $ find (\td -> case tdefType td of
@@ -450,7 +452,7 @@ consType d c =
     $ progTypedefs d
 
 -- | 'True' iff c is the unique constructor of its type
-consIsUnique :: DatalogProgram -> String -> Bool
+consIsUnique :: DatalogProgram' name -> String -> Bool
 consIsUnique d c = (length $ typeCons $ fromJust $ tdefType $ consType d c) == 1
 
 data KeyExpr = KeyExpr { keyPos  :: Pos
@@ -1197,7 +1199,9 @@ instance Show Import where
 instance Eq Import where
     (==) (Import _ p1 a1) (Import _ p2 a2) = p1 == p2 && a1 == a2
 
-data DatalogProgram = DatalogProgram { progImports      :: [Import]
+data DatalogProgram' name = DatalogProgram
+                                     { progName         :: name
+                                     , progImports      :: [Import]
                                      , progTypedefs     :: M.Map String TypeDef
                                        -- There can be multiple functions with
                                        -- the same name.  The key in the map is
@@ -1210,11 +1214,22 @@ data DatalogProgram = DatalogProgram { progImports      :: [Import]
                                      , progApplys       :: [Apply]
                                      , progSources      :: M.Map String String -- maps module to source
                                      }
-                      deriving (Eq)
+                      deriving (Eq, Functor)
+
+type DatalogProgramBuilder = DatalogProgram' ()
+type DatalogProgram = DatalogProgram' String
+
+instance PP DatalogProgramBuilder where
+    pp = ppWith []
 
 instance PP DatalogProgram where
-    pp DatalogProgram{..} = vcat $ punctuate "" $
-                            ((map pp progImports)
+    pp d@DatalogProgram{..} = ppWith [pp progName] d
+
+ppWith :: [Doc] -> DatalogProgram' name -> Doc
+ppWith pre DatalogProgram{..} = vcat $ punctuate "" $
+                            (pre
+                             ++
+                             (map pp progImports)
                              ++
                              (map pp $ M.elems progTypedefs)
                              ++
@@ -1232,21 +1247,26 @@ instance PP DatalogProgram where
                              ++
                              ["\n"])
 
+instance Show DatalogProgramBuilder where
+    show = render . pp
+
 instance Show DatalogProgram where
     show = render . pp
 
-progStructs :: DatalogProgram -> M.Map String TypeDef
+progStructs :: DatalogProgram' name -> M.Map String TypeDef
 progStructs DatalogProgram{..} =
     M.filter ((\case
                 Just TStruct{} -> True
                 _              -> False) . tdefType)
              progTypedefs
 
-progConstructors :: DatalogProgram -> [Constructor]
+progConstructors :: DatalogProgram' name -> [Constructor]
 progConstructors = concatMap (typeCons . fromJust . tdefType) . M.elems . progStructs
 
-emptyDatalogProgram :: DatalogProgram
-emptyDatalogProgram = DatalogProgram { progImports       = []
+emptyDatalogProgram :: DatalogProgramBuilder
+emptyDatalogProgram = DatalogProgram 
+                                     { progName          = ()
+                                     , progImports       = []
                                      , progTypedefs      = M.empty
                                      , progFunctions     = M.empty
                                      , progTransformers  = M.empty
@@ -1257,13 +1277,13 @@ emptyDatalogProgram = DatalogProgram { progImports       = []
                                      , progSources       = M.empty
                                      }
 
-progAddTypedef :: TypeDef -> DatalogProgram -> DatalogProgram
+progAddTypedef :: TypeDef -> DatalogProgram' name -> DatalogProgram' name
 progAddTypedef tdef prog = prog{progTypedefs = M.insert (name tdef) tdef (progTypedefs prog)}
 
-progAddRules :: [Rule] -> DatalogProgram -> DatalogProgram
+progAddRules :: [Rule] -> DatalogProgram' name -> DatalogProgram' name
 progAddRules rules prog = prog{progRules = rules ++ (progRules prog)}
 
-progAddRel :: Relation -> DatalogProgram -> DatalogProgram
+progAddRel :: Relation -> DatalogProgram' name -> DatalogProgram' name
 progAddRel rel prog = prog{progRelations = M.insert (name rel) rel (progRelations prog)}
 
 -- | Expression's syntactic context determines the kinds of

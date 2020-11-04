@@ -39,7 +39,7 @@ import Language.DifferentialDatalog.Syntax
 import {-# SOURCE #-} Language.DifferentialDatalog.Type
 import {-# SOURCE #-} Language.DifferentialDatalog.TypeInference
 
-funcTypeArgSubsts :: (MonadError String me) => DatalogProgram -> Pos -> Function -> [Type] -> Maybe Type -> me (M.Map String Type)
+funcTypeArgSubsts :: (MonadError String me) => DatalogProgram' name -> Pos -> Function -> [Type] -> Maybe Type -> me (M.Map String Type)
 funcTypeArgSubsts d p f@Function{..} argtypes ret_type = do
     check d (length funcArgs == length argtypes) p
           $ "Expected function with " ++ (show $ length argtypes) ++ " arguments, but " ++ funcShowProto f ++ " takes " ++ show (length funcArgs)
@@ -48,6 +48,6 @@ funcTypeArgSubsts d p f@Function{..} argtypes ret_type = do
 -- | Functions that take an argument of type `Group<>` are treated in a special
 -- way in Compile.hs. This function returns the list of `Group` types passed as
 -- arguments to the function.
-funcGroupArgTypes :: DatalogProgram -> Function -> [Type]
+funcGroupArgTypes :: DatalogProgram' name -> Function -> [Type]
 funcGroupArgTypes d Function{..} =
     nub $ filter (isGroup d) $ map typ funcArgs

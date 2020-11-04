@@ -56,6 +56,7 @@ data Config = Config { confDatalogFile     :: FilePath
                      , confRunRustfmt      :: Bool
                      , confRustFlatBuffers :: Bool
                      , confNestedTS32      :: Bool
+                     , confDDLoc           :: Maybe FilePath
                      }
 
 defaultConfig :: Config
@@ -79,4 +80,5 @@ defaultConfig = Config { confDatalogFile     = ""
                        , confRunRustfmt      = False
                        , confRustFlatBuffers = False
                        , confNestedTS32      = False
+                       , confDDLoc           = Nothing
                        }

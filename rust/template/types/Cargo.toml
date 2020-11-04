@@ -1,5 +1,5 @@
 [package]
-name = "types"
+name = "datalog_example_types"
 version = "0.1.0"
 edition = "2018"
 autobins = false
@@ -37,5 +37,5 @@ erased-serde = "0.3"
 flatbuffers = { version = "0.6", optional = true }
 
 [lib]
-name = "types"
+name = "datalog_example_types"
 path = "lib.rs"

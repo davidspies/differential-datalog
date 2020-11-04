@@ -33,7 +33,7 @@ use differential_datalog::record::UpdCmd; // Dynamically typed representation of
 
 // The auto-generated `types` crate contains Rust types that correspond to user-defined DDlog
 // types, one for each typedef and each relation in the DDlog program.
-use types::*;
+use datalog_example_types::*;
 
 fn main() -> Result<(), String> {
 

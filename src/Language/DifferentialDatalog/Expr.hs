@@ -261,7 +261,7 @@ exprVarOccurrences ctx e = exprCollectCtx (\ctx' e' ->
                                           (++) ctx e
 
 -- enumerate all variables that occur in the expression
-exprVars :: DatalogProgram -> ECtx -> Expr -> [Var]
+exprVars :: DatalogProgram' name -> ECtx -> Expr -> [Var]
 exprVars d ctx e = nub $ exprCollectCtx (\ctx' e' ->
                                           case e' of
                                                EVar p v -> [case lookupVar d ctx' v of
@@ -273,7 +273,7 @@ exprVars d ctx e = nub $ exprCollectCtx (\ctx' e' ->
 
 -- | Free variables, i.e., variables that are used in the expression, but declared
 -- outside of it
-exprFreeVars :: DatalogProgram -> ECtx -> Expr -> [Var]
+exprFreeVars :: DatalogProgram' name -> ECtx -> Expr -> [Var]
 exprFreeVars d ctx e = visible_vars `intersect` used_vars
     where
     visible_vars = ctxAllVars d ctx
@@ -296,7 +296,7 @@ exprStripTypeAnnotationsRec :: Expr -> ECtx -> Expr
 exprStripTypeAnnotationsRec e ctx = exprFoldCtx (\ctx' e' -> fst $ exprStripTypeAnnotations (E e') ctx') ctx e
 
 -- Variables declared inside expression, visible in the code that follows the expression.
-exprVarDecls :: DatalogProgram -> ECtx -> Expr -> [Var]
+exprVarDecls :: DatalogProgram' name -> ECtx -> Expr -> [Var]
 exprVarDecls d ctx e =
     snd $
     exprFoldCtx (\ctx' e' ->
@@ -320,7 +320,7 @@ exprVarDecls d ctx e =
                         _                -> [])) ctx e
 
 -- Non-recursively enumerate all functions invoked by the expression
-{-exprFuncs :: DatalogProgram -> ECtx -> Expr -> [String]
+{-exprFuncs :: DatalogProgram' name -> ECtx -> Expr -> [String]
 exprFuncs d ctx e = exprFuncs' [] e
 
 exprFuncs' :: [String] -> Expr -> [String]
@@ -332,7 +332,7 @@ exprFuncs' acc e = nub $ exprCollect (\case
 
 -- Given a function expression, returns the function.
 -- Assumes the expression has been validated.
-funcExprGetFunc :: DatalogProgram -> ECtx -> ENode -> (Function, M.Map String Type)
+funcExprGetFunc :: DatalogProgram' name -> ECtx -> ENode -> (Function, M.Map String Type)
 funcExprGetFunc d ctx e@EFunc{exprFuncName=[fname], ..} =
     getFunc d fname (map typ $ typeFuncArgs t) (typeRetType t)
     where
@@ -343,10 +343,10 @@ funcExprGetFunc _ _   e = error $ "funcExprGetFunc " ++ show e
 -- Closures make precise analysis hard.  To protext the callers from
 -- using inaccurate results, we return 'Nothing' if closures are used
 -- by any of the functions discovered during recursive traveral.
-exprFuncsRec :: DatalogProgram -> ECtx -> Expr -> Maybe (S.Set Function)
+exprFuncsRec :: DatalogProgram' name -> ECtx -> Expr -> Maybe (S.Set Function)
 exprFuncsRec d ctx e = execState (exprFuncsRec_ d ctx e) $ Just S.empty
 
-exprFuncsRec_ :: DatalogProgram -> ECtx -> Expr -> State (Maybe (S.Set Function)) ()
+exprFuncsRec_ :: DatalogProgram' name -> ECtx -> Expr -> State (Maybe (S.Set Function)) ()
 exprFuncsRec_ d ctx e = do
     _ <- exprFoldCtxM (\ctx' e' -> do
                           case e' of
@@ -365,7 +365,7 @@ exprFuncsRec_ d ctx e = do
                      ctx e
     return ()
 
-isLVar :: DatalogProgram -> ECtx -> String -> Bool
+isLVar :: DatalogProgram' name -> ECtx -> String -> Bool
 isLVar d ctx v = isJust $ find ((==v) . name) $ fst $ ctxVars d ctx
 
 
@@ -436,10 +436,10 @@ exprContainsPHolders e =
                 (||) e
 
 -- | True if 'e' is a deconstruction expression.
-exprIsDeconstruct :: DatalogProgram -> Expr -> Bool
+exprIsDeconstruct :: DatalogProgram' name -> Expr -> Bool
 exprIsDeconstruct d e = exprFold (exprIsDeconstruct' d) e
 
-exprIsDeconstruct' :: DatalogProgram -> ExprNode Bool -> Bool
+exprIsDeconstruct' :: DatalogProgram' name -> ExprNode Bool -> Bool
 exprIsDeconstruct' _ EVarDecl{}       = True
 exprIsDeconstruct' _ (ETuple _ as)    = and as
 exprIsDeconstruct' d (EStruct _ c as) = all snd as && consIsUnique d c
@@ -449,10 +449,10 @@ exprIsDeconstruct' _ _                = False
 
 -- | True if 'e' is a variable or field expression, and
 -- can be assigned to (i.e., the variable is writable).
-exprIsVarOrFieldLVal :: DatalogProgram -> ECtx -> Expr -> Bool
+exprIsVarOrFieldLVal :: DatalogProgram' name -> ECtx -> Expr -> Bool
 exprIsVarOrFieldLVal d ctx e = snd $ exprFoldCtx (exprIsVarOrFieldLVal' d) ctx e
 
-exprIsVarOrFieldLVal' :: DatalogProgram -> ECtx -> ExprNode (Expr, Bool) -> (Expr, Bool)
+exprIsVarOrFieldLVal' :: DatalogProgram' name -> ECtx -> ExprNode (Expr, Bool) -> (Expr, Bool)
 exprIsVarOrFieldLVal' d ctx expr =
     case expr of
         (EVar _ v)            -> (E e', isLVar d ctx v)
@@ -475,7 +475,7 @@ exprIsVarOrField' _                = False
 
 -- | Expression maps distinct assignments to input variables 'vs'
 -- to distinct outputs.
-exprIsInjective :: DatalogProgram -> ECtx -> S.Set Var -> Expr -> Bool
+exprIsInjective :: DatalogProgram' name -> ECtx -> S.Set Var -> Expr -> Bool
 exprIsInjective d ctx vs e | isNothing funcs = False
                            | otherwise =
     exprIsInjective_ d ctx vs e &&
@@ -487,13 +487,13 @@ exprIsInjective d ctx vs e | isNothing funcs = False
     funcs = exprFuncsRec d ctx e
 
 -- Non-recursive part of exprIsInjective
-exprIsInjective_ :: DatalogProgram -> ECtx -> S.Set Var -> Expr -> Bool
+exprIsInjective_ :: DatalogProgram' name -> ECtx -> S.Set Var -> Expr -> Bool
 exprIsInjective_ d ctx vs e =
     S.fromList (exprVars d ctx e) == vs &&
     exprFold (exprIsInjective' d) e
 
 -- No clever analysis here; just the obvious cases.
-exprIsInjective' :: DatalogProgram -> ExprNode Bool -> Bool
+exprIsInjective' :: DatalogProgram' name -> ExprNode Bool -> Bool
 exprIsInjective' _ EVar{}        = True
 exprIsInjective' _ EApply{..}    = and exprArgs
 exprIsInjective' _ EBool{}       = True
@@ -512,7 +512,7 @@ exprIsInjective' _ _             = False
 -- | Expression or one of its subexpressions has a polymorphic type.
 -- Such an expression may be impossible to evaluate outside of its context, e.g.,
 -- as a static constant.
-exprIsPolymorphic :: DatalogProgram -> ECtx -> Expr -> Bool
+exprIsPolymorphic :: DatalogProgram' name -> ECtx -> Expr -> Bool
 exprIsPolymorphic d ctx e =
     execState
         (exprTraverseCtxM (\ctx' e' -> do
@@ -522,7 +522,7 @@ exprIsPolymorphic d ctx e =
         False
 
 -- | True if expression does not contain calls to functions with side effects.
-exprIsPure :: DatalogProgram -> ECtx -> Expr -> Bool
+exprIsPure :: DatalogProgram' name -> ECtx -> Expr -> Bool
 exprIsPure d ctx e | isNothing funcs = False
                    | otherwise = all (\f -> not $ funcGetSideEffectAttr d f) $ fromJust funcs
     where funcs = exprFuncsRec d ctx e
@@ -545,7 +545,7 @@ exprTypeMapM fun e = exprFoldM fun' e
 -- Automatically insert string conversion functions in the Concat
 -- operator:  '"x:" ++ x', where 'x' is of type int becomes
 -- '"x:" ++ to_string(x)'.
-exprInjectStringConversion :: (MonadError String me) => DatalogProgram -> ENode -> Type -> me Expr
+exprInjectStringConversion :: (MonadError String me) => DatalogProgram' name -> ENode -> Type -> me Expr
 exprInjectStringConversion d e t = do
     let t' = typ'' d t
     -- find string conversion function

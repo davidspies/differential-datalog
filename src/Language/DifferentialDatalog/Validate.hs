@@ -49,7 +49,7 @@ import Language.DifferentialDatalog.Attribute
 import Language.DifferentialDatalog.Error
 
 -- | Validate Datalog program
-validate :: (MonadError String me) => DatalogProgram -> me DatalogProgram
+validate :: (MonadError String me) => DatalogProgram' name -> me (DatalogProgram' name)
 validate d = do
     uniqNames (Just d) ("Multiple definitions of constructor " ++)
               $ progConstructors d
@@ -92,14 +92,14 @@ validate d = do
     return d''
 
 -- Remove syntactic sugar
-progDesugar :: (MonadError String me) => DatalogProgram -> me DatalogProgram
+progDesugar :: (MonadError String me) => DatalogProgram' name -> me (DatalogProgram' name)
 progDesugar d = progExprMapCtxM d (exprDesugar d)
 
 -- Desugar expressions: convert all type constructor calls to named
 -- field syntax.
 -- Precondition: typedefs must be validated before calling this
 -- function.
-exprDesugar :: (MonadError String me) => DatalogProgram -> ECtx -> ENode -> me Expr
+exprDesugar :: (MonadError String me) => DatalogProgram' name -> ECtx -> ENode -> me Expr
 exprDesugar d _ e =
     case e of
          EStruct p c as -> do
@@ -125,7 +125,7 @@ exprDesugar d _ e =
             return $ E e{exprStructFields = as'}
          _              -> return $ E e
 
-typedefValidate :: (MonadError String me) => DatalogProgram -> TypeDef -> me ()
+typedefValidate :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me ()
 typedefValidate d@DatalogProgram{..} TypeDef{..} = do
     uniq' (Just d) (\_ -> tdefPos) id ("Multiple definitions of type argument " ++) tdefArgs
     mapM_ (\a -> check d (M.notMember a progTypedefs) tdefPos
@@ -140,7 +140,7 @@ typedefValidate d@DatalogProgram{..} TypeDef{..} = do
                     $ "The following type variables are not used in type definition: " ++ intercalate "," dif
     return ()
 
-typeValidate :: (MonadError String me) => DatalogProgram -> [String] -> Type -> me ()
+typeValidate :: (MonadError String me) => DatalogProgram' name -> [String] -> Type -> me ()
 typeValidate _ _     TString{}        = return ()
 typeValidate _ _     TInt{}           = return ()
 typeValidate _ _     TBool{}          = return ()
@@ -180,19 +180,19 @@ typeValidate d tvars (TFunction _ as ret) = do
     mapM_ (typeValidate d tvars . typ) as
     typeValidate d tvars ret
 
-consValidate :: (MonadError String me) => DatalogProgram -> [String] -> Constructor -> me ()
+consValidate :: (MonadError String me) => DatalogProgram' name -> [String] -> Constructor -> me ()
 consValidate d tvars Constructor{..} = do
     fieldsValidate d tvars consArgs
 
-fieldsValidate :: (MonadError String me) => DatalogProgram -> [String] -> [Field] -> me ()
+fieldsValidate :: (MonadError String me) => DatalogProgram' name -> [String] -> [Field] -> me ()
 fieldsValidate d targs fields = do
     uniqNames (Just d) ("Multiple definitions of argument " ++) fields
     mapM_ (fieldValidate d targs) fields
 
-fieldValidate :: (MonadError String me) => DatalogProgram -> [String] -> Field -> me ()
+fieldValidate :: (MonadError String me) => DatalogProgram' name -> [String] -> Field -> me ()
 fieldValidate d targs field@Field{..} = typeValidate d targs $ typ field
 
-checkAcyclicTypes :: (MonadError String me) => DatalogProgram -> me ()
+checkAcyclicTypes :: (MonadError String me) => DatalogProgram' name -> me ()
 checkAcyclicTypes d@DatalogProgram{..} = do
     let g0 :: G.Gr String ()
         g0 = G.insNodes (mapIdx (\(t,_) i -> (i, t)) $ M.toList progTypedefs) G.empty
@@ -213,7 +213,7 @@ checkAcyclicTypes d@DatalogProgram{..} = do
 -- but not this:
 -- typedef TSeq = Option<(string, Ref<TSeq>)>
 -- (the difference is tha the latter is a type alias)
-checkAcyclicTypeAliases :: (MonadError String me) => DatalogProgram -> me ()
+checkAcyclicTypeAliases :: (MonadError String me) => DatalogProgram' name -> me ()
 checkAcyclicTypeAliases d@DatalogProgram{..} = do
     let g0 :: G.Gr String ()
         g0 = G.insNodes (mapIdx (\(t,_) i -> (i, t)) $ M.toList progTypedefs) G.empty
@@ -231,7 +231,7 @@ checkAcyclicTypeAliases d@DatalogProgram{..} = do
                       _ -> True) . tdefType . getType d . snd)
           $ G.labNodes gfull
 
-funcValidateProto :: (MonadError String me) => DatalogProgram -> [Function] -> me ()
+funcValidateProto :: (MonadError String me) => DatalogProgram' name -> [Function] -> me ()
 funcValidateProto d fs = do
     let extern_idx = findIndex (isNothing . funcDef) fs
     let extern_fun = fs !! fromJust extern_idx
@@ -255,14 +255,14 @@ funcValidateProto d fs = do
             typeValidate d tvars funcType)
           fs
 
-funcValidateDefinition :: (MonadError String me) => DatalogProgram -> Function -> me Function
+funcValidateDefinition :: (MonadError String me) => DatalogProgram' name -> Function -> me Function
 funcValidateDefinition d f@Function{..} = do
     case funcDef of
          Nothing  -> return f
          Just def -> do def' <- exprValidate d (funcTypeVars f) (CtxFunc f) def
                         return f{funcDef = Just def'}
 
-relValidate :: (MonadError String me) => DatalogProgram -> Relation -> me Relation
+relValidate :: (MonadError String me) => DatalogProgram' name -> Relation -> me Relation
 relValidate d rel@Relation{..} = do
     typeValidate d [] relType
     check d (isNothing relPrimaryKey || relRole == RelInput) (pos rel)
@@ -274,7 +274,7 @@ relValidate d rel@Relation{..} = do
          Just pkey -> do pkey' <- exprValidate d [] (CtxKey rel) $ keyExpr pkey
                          return rel{relPrimaryKey = Just pkey{keyExpr = pkey'}}
 
-indexValidate :: (MonadError String me) => DatalogProgram -> Index -> me Index
+indexValidate :: (MonadError String me) => DatalogProgram' name -> Index -> me Index
 indexValidate d idx = do
     fieldsValidate d [] $ idxVars idx
     atomValidate d (CtxIndex idx) $ idxAtom idx
@@ -292,7 +292,7 @@ indexValidate d idx = do
             (show $ idx_vars \\ atom_vars)
     return idx'
 
-ruleValidate :: (MonadError String me) => DatalogProgram -> Rule -> me Rule
+ruleValidate :: (MonadError String me) => DatalogProgram' name -> Rule -> me Rule
 ruleValidate d rl@Rule{..} = do
     when (not $ null ruleRHS) $ do
         case head ruleRHS of
@@ -304,7 +304,7 @@ ruleValidate d rl@Rule{..} = do
     ruleValidateExpressions d rl
 
 -- We must perform type inference on all parts of the rule at the same time.
-ruleValidateExpressions :: (MonadError String me) => DatalogProgram -> Rule -> me Rule
+ruleValidateExpressions :: (MonadError String me) => DatalogProgram' name -> Rule -> me Rule
 ruleValidateExpressions d rl = do
     let rhs_es = concat $
                  mapIdx (\rhs i ->
@@ -346,7 +346,7 @@ ruleValidateExpressions d rl = do
     exprsPostCheck d (rhs_es'++lhs_es')
     return rl'
 
-atomValidate :: (MonadError String me) => DatalogProgram -> ECtx -> Atom -> me ()
+atomValidate :: (MonadError String me) => DatalogProgram' name -> ECtx -> Atom -> me ()
 atomValidate d ctx atom = do
     _ <- checkRelation (pos atom) d $ atomRelation atom
     -- variable cannot be declared and used in the same atom
@@ -355,7 +355,7 @@ atomValidate d ctx atom = do
 
 -- Validate an RHS term of a rule.  Once all RHS and LHS terms have been
 -- validated, it is safe to call 'ruleValidateExpressions'.
-ruleRHSValidate :: (MonadError String me) => DatalogProgram -> Rule -> RuleRHS -> Int -> me ()
+ruleRHSValidate :: (MonadError String me) => DatalogProgram' name -> Rule -> RuleRHS -> Int -> me ()
 ruleRHSValidate d rl@Rule{..} (RHSLiteral _ atom) idx =
     atomValidate d (CtxRuleRAtom rl idx) atom
 
@@ -381,7 +381,7 @@ ruleRHSValidate d rl RHSGroupBy{} idx = do
          _ -> err d (pos group_by) "Group-by expression must be a variable or a tuple of variables, e.g., 'group_by(x)' or 'group_by((x,y))'"
     return ()
 
-ruleLHSValidate :: (MonadError String me) => DatalogProgram -> Rule -> Atom -> me ()
+ruleLHSValidate :: (MonadError String me) => DatalogProgram' name -> Rule -> Atom -> me ()
 ruleLHSValidate d rl a@Atom{..} = do
     rel <- checkRelation atomPos d atomRelation
     when (relRole rel == RelInput) $ check d (null $ ruleRHS rl) (pos a)
@@ -392,7 +392,7 @@ ruleLHSValidate d rl a@Atom{..} = do
 -- * all return types must be relations
 -- * relation names are upper-case, function names are lower-case
 -- * validate higher-order types
-transformerValidate :: (MonadError String me) => DatalogProgram -> Transformer -> me ()
+transformerValidate :: (MonadError String me) => DatalogProgram' name -> Transformer -> me ()
 transformerValidate d Transformer{..} = do
     uniqNames (Just d) ("Multiple definitions of transformer argument " ++)  $ transInputs ++ transOutputs
     mapM_ (\o -> check d (hotypeIsRelation $ hofType o) (pos o)
@@ -410,7 +410,7 @@ transformerValidate d Transformer{..} = do
 -- * Outputs cannot be bound to input relations
 -- * Outputs of a transformer cannot be used in the head of a rule
 --   or as output of another transformer
-applyValidate :: (MonadError String me) => DatalogProgram -> Apply -> me ()
+applyValidate :: (MonadError String me) => DatalogProgram' name -> Apply -> me ()
 applyValidate d a@Apply{..} = do
     trans@Transformer{..} <- checkTransformer (pos a) d applyTransformer
     check d (length applyInputs == length transInputs) (pos a)
@@ -465,7 +465,7 @@ applyValidate d a@Apply{..} = do
                        $ "Relation " ++ o ++ " occurs as output of multiple transformer applications")
           applyOutputs
 
-hotypeValidate :: (MonadError String me) => DatalogProgram -> HOType -> me ()
+hotypeValidate :: (MonadError String me) => DatalogProgram' name -> HOType -> me ()
 hotypeValidate d HOTypeFunction{..} = do
     -- FIXME: hacky way to validate function type by converting it into a function.
     let f = Function hotPos [] "" hotArgs hotType Nothing
@@ -478,7 +478,7 @@ hotypeValidate d HOTypeRelation{..} = typeValidate d (typeTypeVars hotType) hotT
 --  * Linearity: A rule contains at most one RHS atom that is mutually
 --  recursive with its head.
 --  * Stratified negation: No loop contains a negative edge.
-depGraphValidate :: (MonadError String me) => DatalogProgram -> me ()
+depGraphValidate :: (MonadError String me) => DatalogProgram' name -> me ()
 depGraphValidate d@DatalogProgram{..} = do
     let g = progDependencyGraph d
     -- strongly connected components of the dependency graph
@@ -527,7 +527,7 @@ depGraphValidate d@DatalogProgram{..} = do
           $ filter ((> 1) . length) sccs
 
 -- Validate and perform type inference on a single expression.
-exprValidate :: (MonadError String me) => DatalogProgram -> [String] -> ECtx -> Expr -> me Expr
+exprValidate :: (MonadError String me) => DatalogProgram' name -> [String] -> ECtx -> Expr -> me Expr
 exprValidate d tvars ctx e = do
     e' <- head <$> exprsTypeCheck d tvars [(ctx, e)]
     exprsPostCheck d [(ctx, e')]
@@ -542,7 +542,7 @@ exprValidate d tvars ctx e = do
 -- performed after type inference.  Before calling this function, the caller
 -- must substitute modified expressions returned by 'exprsTypeCheck' in 'd'.
 
-exprsTypeCheck :: (MonadError String me) => DatalogProgram -> [String] -> [(ECtx, Expr)] -> me [Expr]
+exprsTypeCheck :: (MonadError String me) => DatalogProgram' name -> [String] -> [(ECtx, Expr)] -> me [Expr]
 exprsTypeCheck d tvars es = {-trace ("exprValidate " ++ show e ++ " in \n" ++ show ctx) $ -} do
     -- First pass: make sure that expressions are well-formed before performing
     -- type inference.
@@ -550,7 +550,7 @@ exprsTypeCheck d tvars es = {-trace ("exprValidate " ++ show e ++ " in \n" ++ sh
     -- Second pass: type inference.
     inferTypes d es
 
-exprsPostCheck :: (MonadError String me) => DatalogProgram -> [(ECtx, Expr)] -> me ()
+exprsPostCheck :: (MonadError String me) => DatalogProgram' name -> [(ECtx, Expr)] -> me ()
 exprsPostCheck d es = do
     -- Pass 3,4: additional checks that can be performed once type inference has
     -- succeeded.
@@ -559,7 +559,7 @@ exprsPostCheck d es = do
 
 -- This function does not perform type checking: just checks that all functions and
 -- variables are defined; the number of arguments matches declarations, etc.
-exprValidate1 :: (MonadError String me) => DatalogProgram -> [String] -> ECtx -> ExprNode Expr -> me ()
+exprValidate1 :: (MonadError String me) => DatalogProgram' name -> [String] -> ECtx -> ExprNode Expr -> me ()
 exprValidate1 _ _ ctx EVar{..} | ctxInRuleRHSPositivePattern ctx
                                           = return ()
 exprValidate1 d _ ctx (EVar p v)          = do _ <- checkVar p d ctx v
@@ -639,11 +639,11 @@ ctxPHolderAllowed ctx =
     par = ctxParent ctx
     pres = ctxPHolderAllowed par
 
-checkNoVar :: (MonadError String me) => Pos -> DatalogProgram -> ECtx -> String -> me ()
+checkNoVar :: (MonadError String me) => Pos -> DatalogProgram' name -> ECtx -> String -> me ()
 checkNoVar p d ctx v = check d (isNothing $ lookupVar d ctx v) p
                               $ "Variable " ++ v ++ " already defined in this scope"
 
-exprValidate2 :: (MonadError String me) => DatalogProgram -> ECtx -> ExprNode Type -> me ()
+exprValidate2 :: (MonadError String me) => DatalogProgram' name -> ECtx -> ExprNode Type -> me ()
 exprValidate2 d _   (ESlice p e h _)    =
     case typ' d e of
         TBit _ w -> do check d (h < w) p
@@ -668,7 +668,7 @@ exprValidate2 d _   (EAs p e t)          = do
 exprValidate2 _ _   _                    = return ()
 
 
-checkLExpr :: (MonadError String me) => DatalogProgram -> ECtx -> Expr -> me ()
+checkLExpr :: (MonadError String me) => DatalogProgram' name -> ECtx -> Expr -> me ()
 checkLExpr d ctx e | ctxIsRuleRCond ctx =
     check d (exprIsPattern e) (pos e)
         $ "Left-hand side of an assignment term can only contain variable declarations, type constructors, and tuples"
@@ -676,7 +676,7 @@ checkLExpr d ctx e | ctxIsRuleRCond ctx =
     check d (exprIsVarOrFieldLVal d ctx e || exprIsDeconstruct d e) (pos e)
         $ "Expression is not an l-value" -- in context " ++ show ctx
 
-exprValidate3 :: (MonadError String me) => DatalogProgram -> ECtx -> ExprNode Expr -> me ()
+exprValidate3 :: (MonadError String me) => DatalogProgram' name -> ECtx -> ExprNode Expr -> me ()
 exprValidate3 d ctx e@(EMatch _ x cs) = do
     let t = exprType d (CtxMatchExpr e ctx) x
         ct0 = typeConsTree t

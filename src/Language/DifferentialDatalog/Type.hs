@@ -44,7 +44,7 @@ module Language.DifferentialDatalog.Type(
     exprType'',
     exprNodeType,
     relKeyType,
-    typ', typ'',
+    typ', typ'', typ'_,
     typDeref',
     typDeref'',
     isBool, isBit, isSigned, isBigInt, isInteger, isFP, isString, isStruct, isTuple, isGroup, isDouble, isFloat,
@@ -188,7 +188,7 @@ typeIsPolymorphic TOpaque{..}   = any typeIsPolymorphic typeArgs
 typeIsPolymorphic TFunction{..} = any (typeIsPolymorphic . typ) typeFuncArgs || typeIsPolymorphic typeRetType
 
 -- | True iff f is a polymorphic function.
-funcIsPolymorphic :: DatalogProgram -> String -> Bool
+funcIsPolymorphic :: DatalogProgram' name -> String -> Bool
 funcIsPolymorphic d fname = (length fs > 1) ||
                             (typeIsPolymorphic $ funcType f) ||
                             (any typeIsPolymorphic $ map typ $ funcArgs f)
@@ -198,29 +198,29 @@ funcIsPolymorphic d fname = (length fs > 1) ||
 
 -- | Compute type of an expression.  The expression must be previously
 -- validated.
-exprType :: DatalogProgram -> ECtx -> Expr -> Type
+exprType :: DatalogProgram' name -> ECtx -> Expr -> Type
 exprType d ctx e = exprFoldCtx (exprNodeType' d) ctx e
 
 -- | Like 'exprType', but also applies 'typ'' to result.
-exprType' :: DatalogProgram -> ECtx -> Expr -> Type
+exprType' :: DatalogProgram' name -> ECtx -> Expr -> Type
 exprType' d ctx e = typ' d $ exprType d ctx e
 
 -- | Like 'exprType', but also applies 'typ''' to result.
-exprType'' :: DatalogProgram -> ECtx -> Expr -> Type
+exprType'' :: DatalogProgram' name -> ECtx -> Expr -> Type
 exprType'' d ctx e = typ'' d $ exprType d ctx e
 
 -- | Type of relation's primary key, if it has one
-relKeyType :: DatalogProgram -> Relation -> Maybe Type
+relKeyType :: DatalogProgram' name -> Relation -> Maybe Type
 relKeyType d rel =
     fmap (\KeyExpr{..} -> exprType d (CtxKey rel) keyExpr) $ relPrimaryKey rel
 
 -- | Compute expression node type; fail if type is undefined or there
 -- is a conflict.
-exprNodeType :: DatalogProgram -> ECtx -> ExprNode Type -> Type
+exprNodeType :: DatalogProgram' name -> ECtx -> ExprNode Type -> Type
 exprNodeType d ctx e = ((flip atPos) (pos e)) $ exprNodeType' d ctx e
 
 {-
-structTypeArgs :: (MonadError String me) => DatalogProgram -> Pos -> ECtx -> String -> [(String, Type)] -> me [Type]
+structTypeArgs :: (MonadError String me) => DatalogProgram' name -> Pos -> ECtx -> String -> [(String, Type)] -> me [Type]
 structTypeArgs d p ctx cname argtypes = do
     let TypeDef{..} = consType d cname
         Constructor{..} = getConstructor d cname
@@ -238,7 +238,7 @@ structTypeArgs d p ctx cname argtypes = do
          tdefArgs
 -}
 
-exprNodeType' :: DatalogProgram -> ECtx -> ExprNode Type -> Type
+exprNodeType' :: DatalogProgram' name -> ECtx -> ExprNode Type -> Type
 exprNodeType' d ctx (EVar p v)            =
     let vs = ctxAllVars d ctx in
     case find ((==v) . name) vs of
@@ -330,10 +330,13 @@ exprNodeType' _ _   (EClosure _ args r _)  = tFunction (map (fromJust . ceargTyp
 
 -- | Expand typedef's down to actual type definition, substituting
 -- type arguments along the way
-typ' :: (WithType a) => DatalogProgram -> a -> Type
+typ' :: (WithType a) => DatalogProgram' name -> a -> Type
 typ' d x = _typ' d (typ x)
 
-_typ' :: DatalogProgram -> Type -> Type
+typ'_ :: (WithType a) => DatalogProgram -> a -> Type
+typ'_ = typ'
+
+_typ' :: DatalogProgram' name -> Type -> Type
 _typ' d (TUser _ n as) =
     case tdefType tdef of
          Nothing -> tOpaque n as
@@ -347,10 +350,10 @@ _typ' _ t = t
 -- Expand typedef's down to actual type definition, substituting
 -- type arguments along the way. Additionally unwraps shared ref types,
 -- replacing 'Ref<t>' with 't'.
-typDeref' :: (WithType a) => DatalogProgram -> a -> Type
+typDeref' :: (WithType a) => DatalogProgram' name -> a -> Type
 typDeref' d x = _typDeref' d (typ x)
 
-_typDeref' :: DatalogProgram -> Type -> Type
+_typDeref' :: DatalogProgram' name -> Type -> Type
 _typDeref' d (TUser _ n as) =
     case tdefType tdef of
          Nothing -> _typDeref' d $ tOpaque n as
@@ -360,10 +363,10 @@ _typDeref' d rt@(TOpaque _ _ [t]) | isSharedRef d rt = _typDeref' d t
 _typDeref' _ t = t
 
 -- | Similar to typ', but does not expand the last typedef if it is a struct
-typ'' :: (WithType a) => DatalogProgram -> a -> Type
+typ'' :: (WithType a) => DatalogProgram' name -> a -> Type
 typ'' d x = _typ'' d (typ x)
 
-_typ'' :: DatalogProgram -> Type -> Type
+_typ'' :: DatalogProgram' name -> Type -> Type
 _typ'' d t'@(TUser _ n as) =
     case tdefType tdef of
          (Just (TStruct _ _)) -> t'
@@ -374,10 +377,10 @@ _typ'' _ t = t
 
 -- | A variant of typ'' to be used in contexts where shared references like
 -- 'Ref<>' should be transparent.
-typDeref'' :: (WithType a) => DatalogProgram -> a -> Type
+typDeref'' :: (WithType a) => DatalogProgram' name -> a -> Type
 typDeref'' d x = _typDeref'' d (typ x)
 
-_typDeref'' :: DatalogProgram -> Type -> Type
+_typDeref'' :: DatalogProgram' name -> Type -> Type
 _typDeref'' d t'@(TUser _ n as) =
     case tdefType tdef of
          (Just (TStruct _ _)) -> t'
@@ -403,106 +406,106 @@ consSubstTypeArgs subst c = c{consArgs = args}
     args = map (\a -> a{fieldType = typeSubstTypeArgs subst $ fieldType a})
                $ consArgs c
 
-isBool :: (WithType a) => DatalogProgram -> a -> Bool
+isBool :: (WithType a) => DatalogProgram' name -> a -> Bool
 isBool d a = case typ' d a of
                   TBool _ -> True
                   _       -> False
 
-isBit :: (WithType a) => DatalogProgram -> a -> Bool
+isBit :: (WithType a) => DatalogProgram' name -> a -> Bool
 isBit d a = case typ' d a of
                  TBit _ _ -> True
                  _        -> False
 
-isSigned :: (WithType a) => DatalogProgram -> a -> Bool
+isSigned :: (WithType a) => DatalogProgram' name -> a -> Bool
 isSigned d a = case typ' d a of
                  TSigned _ _ -> True
                  _           -> False
 
-isBigInt :: (WithType a) => DatalogProgram -> a -> Bool
+isBigInt :: (WithType a) => DatalogProgram' name -> a -> Bool
 isBigInt d a = case typ' d a of
                  TInt _ -> True
                  _      -> False
 
-isInteger :: (WithType a) => DatalogProgram -> a -> Bool
+isInteger :: (WithType a) => DatalogProgram' name -> a -> Bool
 isInteger d a = isBit d a || isSigned d a || isBigInt d a
 
-isDouble :: (WithType a) => DatalogProgram -> a -> Bool
+isDouble :: (WithType a) => DatalogProgram' name -> a -> Bool
 isDouble d a = case typ' d a of
                     TDouble _ -> True
                     _         -> False
 
-isFloat :: (WithType a) => DatalogProgram -> a -> Bool
+isFloat :: (WithType a) => DatalogProgram' name -> a -> Bool
 isFloat d a = case typ' d a of
                    TFloat _ -> True
                    _         -> False
 
-isFP :: (WithType a) => DatalogProgram -> a -> Bool
+isFP :: (WithType a) => DatalogProgram' name -> a -> Bool
 isFP d a = isDouble d a || isFloat d a
 
-isString :: (WithType a) => DatalogProgram -> a -> Bool
+isString :: (WithType a) => DatalogProgram' name -> a -> Bool
 isString d a = case typ' d a of
                     TString _ -> True
                     _      -> False
 
-isStruct :: (WithType a) => DatalogProgram -> a -> Bool
+isStruct :: (WithType a) => DatalogProgram' name -> a -> Bool
 isStruct d a = case typ' d a of
                     TStruct _ _ -> True
                     _           -> False
 
-isTuple :: (WithType a) => DatalogProgram -> a -> Bool
+isTuple :: (WithType a) => DatalogProgram' name -> a -> Bool
 isTuple d a = case typ' d a of
                    TTuple _ _ -> True
                    _          -> False
 
-isGroup :: (WithType a) => DatalogProgram -> a -> Bool
+isGroup :: (WithType a) => DatalogProgram' name -> a -> Bool
 isGroup d a = case typ' d a of
                    TOpaque _ t _ | t == gROUP_TYPE -> True
                    _                               -> False
 
-isMap :: (WithType a) => DatalogProgram -> a -> Bool
+isMap :: (WithType a) => DatalogProgram' name -> a -> Bool
 isMap d a = case typ' d a of
                  TOpaque _ t _ | t == mAP_TYPE -> True
                  _                             -> False
 
-isTinySet :: (WithType a) => DatalogProgram -> a -> Bool
+isTinySet :: (WithType a) => DatalogProgram' name -> a -> Bool
 isTinySet d a = case typ' d a of
                  TOpaque _ t _ | t == tINYSET_TYPE -> True
                  _                                 -> False
 
-isSharedRef :: (WithType a) => DatalogProgram -> a -> Bool
+isSharedRef :: (WithType a) => DatalogProgram' name -> a -> Bool
 isSharedRef d a =
     case typ' d a of
          TOpaque _ t _ -> tdefGetSharedRefAttr d $ getType d t
          _             -> False
 
-isOption :: (WithType a) => DatalogProgram -> a -> Bool
+isOption :: (WithType a) => DatalogProgram' name -> a -> Bool
 isOption d a = case typ'' d a of
                     TUser _ t _ | t == oPTION_TYPE -> True
                     _                              -> False
 
-isResult :: (WithType a) => DatalogProgram -> a -> Bool
+isResult :: (WithType a) => DatalogProgram' name -> a -> Bool
 isResult d a = case typ'' d a of
                     TUser _ t _ | t == rESULT_TYPE -> True
                     _                              -> False
 
 -- | Check if 'a' and 'b' have identical types up to type aliasing;
 -- throw exception if they don't.
-checkTypesMatch :: (MonadError String me, WithType a, WithType b) => Pos -> DatalogProgram -> a -> b -> me ()
+checkTypesMatch :: (MonadError String me, WithType a, WithType b) => Pos -> DatalogProgram' name -> a -> b -> me ()
 checkTypesMatch p d x y =
     check d (typesMatch d x y) p
           $ "Incompatible types " ++ show (typ x) ++ " and " ++ show (typ y)
 
 
 -- | True iff 'a' and 'b' have identical types up to type aliasing.
-typesMatch :: (WithType a, WithType b) => DatalogProgram -> a -> b -> Bool
+typesMatch :: (WithType a, WithType b) => DatalogProgram' name -> a -> b -> Bool
 typesMatch d x y = typeNormalize d x == typeNormalize d y
 
 -- | Normalize type by applying typ'' to all its fields and type
 -- arguments.
-typeNormalize :: (WithType a) => DatalogProgram -> a -> Type
+typeNormalize :: (WithType a) => DatalogProgram' name -> a -> Type
 typeNormalize d x = typeNormalize' d $ typ x
 
-typeNormalize' :: DatalogProgram -> Type -> Type
+typeNormalize' :: DatalogProgram' name -> Type -> Type
 typeNormalize' d t =
     case t' of
          TBool{}            -> t'
@@ -539,10 +542,10 @@ typeUserTypes' _                = []
 -- allocated members.  The graph induced by this relation cannot be recursive, as
 -- 'T' cannot contain an instance of itself, unless it is wrapped in a dynamic
 -- allocation (via `Ref`, `Set`, or any other container type).
-typeStaticMemberTypes :: DatalogProgram -> Type -> [String]
+typeStaticMemberTypes :: DatalogProgram' name -> Type -> [String]
 typeStaticMemberTypes d t = nub $ typeStaticMemberTypes' d t
 
-typeStaticMemberTypes' :: DatalogProgram -> Type -> [String]
+typeStaticMemberTypes' :: DatalogProgram' name -> Type -> [String]
 typeStaticMemberTypes' d TStruct{..}   = concatMap (typeStaticMemberTypes d . typ)
                                                    $ concatMap consArgs typeCons
 typeStaticMemberTypes' d TTuple{..}    = concatMap (typeStaticMemberTypes d . typ) typeTupArgs
@@ -555,10 +558,10 @@ typeStaticMemberTypes' _ _             = []
 -- This function is used in validating recursive data types.
 -- It computes the set of user-defined types that type 'T' contains as statically
 -- or dynamically allocated members.
-typeMemberTypes :: DatalogProgram -> Type -> [String]
+typeMemberTypes :: DatalogProgram' name -> Type -> [String]
 typeMemberTypes d t = nub $ typeMemberTypes' d t
 
-typeMemberTypes' :: DatalogProgram -> Type -> [String]
+typeMemberTypes' :: DatalogProgram' name -> Type -> [String]
 typeMemberTypes' d TStruct{..} = concatMap (typeMemberTypes d . typ) $ concatMap consArgs typeCons
 typeMemberTypes' d TTuple{..}  = concatMap (typeMemberTypes d . typ) typeTupArgs
 typeMemberTypes' d TUser{..}   = typeName : concatMap (typeMemberTypes d) typeArgs
@@ -589,7 +592,7 @@ consTreeEmpty _         = False
 typeConsTree :: Type -> ConsTree
 typeConsTree t = CT t [EPHolder nopos]
 
-consTreeNodeExpand :: DatalogProgram -> Type -> [CTreeNode]
+consTreeNodeExpand :: DatalogProgram' name -> Type -> [CTreeNode]
 consTreeNodeExpand d t =
     case typ' d t of
          TStruct _ cs               -> map (\c -> EStruct nopos (name c)
@@ -609,7 +612,7 @@ consTreeNodeExpand d t =
 --
 -- If the abducted part is empty, this means that the pattern is
 -- redundant.
-consTreeAbduct :: DatalogProgram -> ConsTree -> Expr -> (ConsTree, ConsTree)
+consTreeAbduct :: DatalogProgram' name -> ConsTree -> Expr -> (ConsTree, ConsTree)
 
 -- wildcard (_), var decl abduct the entire tree
 consTreeAbduct _ (CT t cts) (E EPHolder{}) = (CT t [], CT t cts)
@@ -622,7 +625,7 @@ consTreeAbduct d (CT t [EPHolder{}]) e =
 consTreeAbduct d ct e = consTreeAbduct' d ct e
 
 
-consTreeAbduct' :: DatalogProgram -> ConsTree -> Expr -> (ConsTree, ConsTree)
+consTreeAbduct' :: DatalogProgram' name -> ConsTree -> Expr -> (ConsTree, ConsTree)
 consTreeAbduct' d ct@(CT t nodes) (E e) =
     case e of
          EBool p b      -> (CT t $ filter (/= EBool p b) nodes, CT t $ filter (== EBool p b) nodes)
@@ -646,12 +649,12 @@ consTreeAbduct' d ct@(CT t nodes) (E e) =
          _              -> error $ "Type.consTreeAbduct': invalid pattern " ++ show e
 
 
-abductTuple :: DatalogProgram -> [Expr] -> [ConsTree] -> ([CTreeNode], [CTreeNode])
+abductTuple :: DatalogProgram' name -> [Expr] -> [ConsTree] -> ([CTreeNode], [CTreeNode])
 abductTuple d es ts = (map (ETuple nopos) leftover, map (ETuple nopos) abducted)
     where
     (leftover, abducted) = abductMany d es ts
 
-abductStruct :: DatalogProgram -> ENode -> CTreeNode -> ([CTreeNode], [CTreeNode])
+abductStruct :: DatalogProgram' name -> ENode -> CTreeNode -> ([CTreeNode], [CTreeNode])
 abductStruct d (EStruct _ c fs) (EStruct _ c' ts) | c == c' =
     (map (EStruct nopos c . zip fnames) leftover, map (EStruct nopos c . zip fnames) abducted)
     where
@@ -659,7 +662,7 @@ abductStruct d (EStruct _ c fs) (EStruct _ c' ts) | c == c' =
     (leftover, abducted) = abductMany d fvals (map snd ts)
 abductStruct _ _ nd  = ([nd], [])
 
-abductMany :: DatalogProgram -> [Expr] -> [ConsTree] -> ([[ConsTree]], [[ConsTree]])
+abductMany :: DatalogProgram' name -> [Expr] -> [ConsTree] -> ([[ConsTree]], [[ConsTree]])
 abductMany _ []     []       = ([], [[]])
 abductMany d (e:es) (ct:cts) =
     let (CT t leftover, CT _ abducted) = consTreeAbduct d ct e
@@ -706,7 +709,7 @@ typeMap f t = runIdentity $ typeMapM (return . f) t
 -- sets, vectors, and groups, key-value pair for maps).  The Boolean flag in 
 -- the returned tuple indicates whether the collection iterates by reference
 -- (True) or by value (False) in Rust.
-typeIterType :: DatalogProgram -> Type -> (Type, Bool)
+typeIterType :: DatalogProgram' name -> Type -> (Type, Bool)
 typeIterType d t =
     case typ' d t of
          TOpaque _ tname [t']  | tname == tINYSET_TYPE -> (t', False)            -- Tinysets iterate by value.
@@ -715,7 +718,7 @@ typeIterType d t =
          TOpaque _ tname [_,v] | tname == gROUP_TYPE   -> (v, False)             -- Groups iterate by value.
          _                                             -> error $ "typeIterType " ++ show t
 
-typeIsIterable :: (WithType a) =>  DatalogProgram -> a -> Bool
+typeIsIterable :: (WithType a) =>  DatalogProgram' name -> a -> Bool
 typeIsIterable d x =
     case typ' d x of
          TOpaque _ tname [_]   | elem tname sET_TYPES -> True
@@ -723,12 +726,12 @@ typeIsIterable d x =
          TOpaque _ tname _     | tname == gROUP_TYPE  -> True
          _                                            -> False
 
-checkIterable :: (MonadError String me, WithType a) => String -> Pos -> DatalogProgram -> a -> me ()
+checkIterable :: (MonadError String me, WithType a) => String -> Pos -> DatalogProgram' name -> a -> me ()
 checkIterable prefix p d x =
     check d (typeIsIterable d x) p $
           prefix ++ " must have one of these types: " ++ intercalate ", " sET_TYPES ++ ", or " ++ mAP_TYPE ++ " but its type is " ++ show (typ x)
 
-varType :: DatalogProgram -> Var -> Type
+varType :: DatalogProgram' name -> Var -> Type
 varType _ (ExprVar ctx EVarDecl{})         = ctxExpectType ctx
 varType _ (ExprVar ctx EVar{})             = ctxExpectType ctx
 varType _ v@ExprVar{}                      = error $ "varType " ++ show v

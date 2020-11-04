@@ -27,7 +27,7 @@ optional = true
 path = "./ovsdb"
 optional = true
 
-[dependencies.types]
+[dependencies.datalog_example_types]
 path = "./types"
 
 [dependencies]

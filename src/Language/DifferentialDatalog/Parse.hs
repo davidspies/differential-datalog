@@ -57,7 +57,7 @@ import Language.DifferentialDatalog.Error
 import {-# SOURCE #-} Language.DifferentialDatalog.Expr
 
 -- parse a string containing a datalog program and produce the intermediate representation
-parseDatalogString :: String -> String -> IO DatalogProgram
+parseDatalogString :: String -> String -> IO DatalogProgramBuilder
 parseDatalogString program file = do
   case parse datalogGrammar file program of
        Left  e    -> errorWithoutStackTrace $ "Failed to parse input file: " ++ show e
@@ -236,7 +236,8 @@ spec = do
     let applys = mapMaybe (\case
                            SpApply a -> Just a
                            _         -> Nothing) items
-    let program = DatalogProgram { progImports      = imports
+    let program = DatalogProgram { progName          = ()
+                                 , progImports      = imports
                                  , progTypedefs     = M.fromList types
                                  , progFunctions    = M.fromList $ groupSort funcs
                                  , progTransformers = M.fromList transformers

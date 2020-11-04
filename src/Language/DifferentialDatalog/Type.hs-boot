@@ -18,38 +18,38 @@ instance WithType Type where
 instance WithType Field where
 instance WithType FuncArg where
 
-typeStaticMemberTypes :: DatalogProgram -> Type -> [String]
-typesMatch :: (WithType a, WithType b) => DatalogProgram -> a -> b -> Bool
-checkTypesMatch :: (MonadError String me, WithType a, WithType b) => Pos -> DatalogProgram -> a -> b -> me ()
+typeStaticMemberTypes :: DatalogProgram' name -> Type -> [String]
+typesMatch :: (WithType a, WithType b) => DatalogProgram' name -> a -> b -> Bool
+checkTypesMatch :: (MonadError String me, WithType a, WithType b) => Pos -> DatalogProgram' name -> a -> b -> me ()
 consTreeEmpty :: ConsTree -> Bool
-consTreeAbduct :: DatalogProgram -> ConsTree -> Expr -> (ConsTree, ConsTree)
+consTreeAbduct :: DatalogProgram' name -> ConsTree -> Expr -> (ConsTree, ConsTree)
 typeConsTree :: Type -> ConsTree
-exprType :: DatalogProgram -> ECtx -> Expr -> Type
-exprType' :: DatalogProgram -> ECtx -> Expr -> Type
-exprType'' :: DatalogProgram -> ECtx -> Expr -> Type
+exprType :: DatalogProgram' name -> ECtx -> Expr -> Type
+exprType' :: DatalogProgram' name -> ECtx -> Expr -> Type
+exprType'' :: DatalogProgram' name -> ECtx -> Expr -> Type
 sET_TYPES :: [String]
 gROUP_TYPE :: String
 ePOCH_TYPE :: String
 iTERATION_TYPE :: String
 nESTED_TS_TYPE :: String
 wEIGHT_TYPE :: String
-checkIterable :: (MonadError String me, WithType a) => String -> Pos -> DatalogProgram -> a -> me ()
-typeIterType :: DatalogProgram -> Type -> (Type, Bool)
-exprNodeType :: DatalogProgram -> ECtx -> ExprNode Type -> Type
-isBool :: (WithType a) => DatalogProgram -> a -> Bool
-isBit :: (WithType a) => DatalogProgram -> a -> Bool
-isSigned :: (WithType a) => DatalogProgram -> a -> Bool
-isString :: (WithType a) => DatalogProgram -> a -> Bool
-isBigInt :: (WithType a) => DatalogProgram -> a -> Bool
-isInteger :: (WithType a) => DatalogProgram -> a -> Bool
-isMap :: (WithType a) => DatalogProgram -> a -> Bool
-isGroup :: (WithType a) => DatalogProgram -> a -> Bool
-isStruct :: (WithType a) => DatalogProgram -> a -> Bool
-isSharedRef :: (WithType a) => DatalogProgram -> a -> Bool
-isFloat :: (WithType a) => DatalogProgram -> a -> Bool
-isDouble :: (WithType a) => DatalogProgram -> a -> Bool
-isFP :: (WithType a) => DatalogProgram -> a -> Bool
-typ' :: (WithType a) => DatalogProgram -> a -> Type
+checkIterable :: (MonadError String me, WithType a) => String -> Pos -> DatalogProgram' name -> a -> me ()
+typeIterType :: DatalogProgram' name -> Type -> (Type, Bool)
+exprNodeType :: DatalogProgram' name -> ECtx -> ExprNode Type -> Type
+isBool :: (WithType a) => DatalogProgram' name -> a -> Bool
+isBit :: (WithType a) => DatalogProgram' name -> a -> Bool
+isSigned :: (WithType a) => DatalogProgram' name -> a -> Bool
+isString :: (WithType a) => DatalogProgram' name -> a -> Bool
+isBigInt :: (WithType a) => DatalogProgram' name -> a -> Bool
+isInteger :: (WithType a) => DatalogProgram' name -> a -> Bool
+isMap :: (WithType a) => DatalogProgram' name -> a -> Bool
+isGroup :: (WithType a) => DatalogProgram' name -> a -> Bool
+isStruct :: (WithType a) => DatalogProgram' name -> a -> Bool
+isSharedRef :: (WithType a) => DatalogProgram' name -> a -> Bool
+isFloat :: (WithType a) => DatalogProgram' name -> a -> Bool
+isDouble :: (WithType a) => DatalogProgram' name -> a -> Bool
+isFP :: (WithType a) => DatalogProgram' name -> a -> Bool
+typ' :: (WithType a) => DatalogProgram' name -> a -> Type
 typeMapM :: (Monad m) => (Type -> m Type) -> Type -> m Type
 typeIsPolymorphic :: Type -> Bool
-varType :: DatalogProgram -> Var -> Type
+varType :: DatalogProgram' name -> Var -> Type

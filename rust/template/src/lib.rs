@@ -50,9 +50,9 @@ pub mod ovsdb_api;
 pub mod update_handler;
 
 use crate::api::updcmd2upd;
-use ::types::closure;
-use ::types::string_append;
-use ::types::string_append_str;
+use ::datalog_example_types::closure;
+use ::datalog_example_types::string_append;
+use ::datalog_example_types::string_append_str;
 
 use serde::ser::SerializeTuple;
 use serde::Deserialize;

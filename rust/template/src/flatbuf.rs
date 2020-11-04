@@ -5,7 +5,7 @@ use differential_datalog::program::{RelId, Response, Update};
 use differential_datalog::DeltaMap;
 use flatbuffers as fbrt;
 
-use types::flatbuf::*;
+use datalog_example_types::flatbuf::*;
 
 // Wrapper type, so we can implement traits for it.
 pub struct DDValueUpdate(pub Update<DDValue>);

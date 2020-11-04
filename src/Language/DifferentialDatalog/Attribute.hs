@@ -39,13 +39,13 @@ import {-# SOURCE #-} Language.DifferentialDatalog.Type
 import {-# SOURCE #-} Language.DifferentialDatalog.Function
 import Language.DifferentialDatalog.Error
 
-progValidateAttributes :: (MonadError String me) => DatalogProgram -> me ()
+progValidateAttributes :: (MonadError String me) => DatalogProgram' name -> me ()
 progValidateAttributes d = do
     mapM_ (typedefValidateAttrs d) $ progTypedefs d
     mapM_ (indexValidateAttrs d) $ progIndexes d
     mapM_ (mapM_ (funcValidateAttrs d)) $ progFunctions d
 
-typedefValidateAttrs :: (MonadError String me) => DatalogProgram -> TypeDef -> me ()
+typedefValidateAttrs :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me ()
 typedefValidateAttrs d tdef@TypeDef{..} = do
     uniqNames (Just d) ("Multiple definitions of attribute " ++) tdefAttrs
     mapM_ (typedefValidateAttr d tdef) tdefAttrs
@@ -58,7 +58,7 @@ typedefValidateAttrs d tdef@TypeDef{..} = do
     maybe (return ()) (typeValidateAttrs d) tdefType
     return ()
 
-typedefValidateAttr :: (MonadError String me) => DatalogProgram -> TypeDef -> Attribute -> me ()
+typedefValidateAttr :: (MonadError String me) => DatalogProgram' name -> TypeDef -> Attribute -> me ()
 typedefValidateAttr d TypeDef{..} attr = do
     case name attr of
          "size" -> do
@@ -91,43 +91,43 @@ typedefValidateAttr d TypeDef{..} attr = do
                   _ -> return ()
          n -> err d (pos attr) $ "Unknown attribute " ++ n
 
-typeValidateAttrs :: (MonadError String me) => DatalogProgram -> Type -> me ()
+typeValidateAttrs :: (MonadError String me) => DatalogProgram' name -> Type -> me ()
 typeValidateAttrs d struct@TStruct{..} =
     mapM_ (consValidateAttrs d struct) typeCons
 typeValidateAttrs _ _ = return ()
 
-consValidateAttrs :: (MonadError String me) => DatalogProgram -> Type -> Constructor -> me ()
+consValidateAttrs :: (MonadError String me) => DatalogProgram' name -> Type -> Constructor -> me ()
 consValidateAttrs d struct cons@Constructor{..} = do
     mapM_ (consValidateAttr d struct cons) consAttrs
     _ <- checkRustAttrs d consAttrs
     mapM_ (fieldValidateAttrs d) consArgs
     return ()
 
-consValidateAttr :: (MonadError String me) => DatalogProgram -> Type -> Constructor -> Attribute -> me ()
+consValidateAttr :: (MonadError String me) => DatalogProgram' name -> Type -> Constructor -> Attribute -> me ()
 consValidateAttr d struct Constructor{..} attr = do
     let TStruct{..} = struct
     case name attr of
          "rust" -> check d (length typeCons > 1) (pos attr) $ "Per-constructor 'rust' attributes are only supported for types with multiple constructors"
          n -> err d (pos attr) $ "Unknown attribute " ++ n
 
-indexValidateAttrs :: (MonadError String me) => DatalogProgram -> Index -> me ()
+indexValidateAttrs :: (MonadError String me) => DatalogProgram' name -> Index -> me ()
 indexValidateAttrs d Index{..} = mapM_ (fieldValidateAttrs d) idxVars
 
-fieldValidateAttrs :: (MonadError String me) => DatalogProgram -> Field -> me ()
+fieldValidateAttrs :: (MonadError String me) => DatalogProgram' name -> Field -> me ()
 fieldValidateAttrs d field@Field{..} = do
     mapM_ (fieldValidateAttr d) fieldAttrs
     _ <- checkRustAttrs d fieldAttrs
     _ <- fieldCheckDeserializeArrayAttr d field
     return ()
 
-fieldValidateAttr :: (MonadError String me) => DatalogProgram -> Attribute -> me ()
+fieldValidateAttr :: (MonadError String me) => DatalogProgram' name -> Attribute -> me ()
 fieldValidateAttr d attr = do
     case name attr of
          "rust" -> return ()
          "deserialize_from_array" -> return ()
          n -> err d (pos attr) $ "Unknown attribute " ++ n
 
-funcValidateAttrs :: (MonadError String me) => DatalogProgram -> Function -> me ()
+funcValidateAttrs :: (MonadError String me) => DatalogProgram' name -> Function -> me ()
 funcValidateAttrs d f@Function{..} = do
     uniqNames (Just d) ("Multiple definitions of attribute " ++) funcAttrs
     mapM_ (funcValidateAttr d) funcAttrs
@@ -135,7 +135,7 @@ funcValidateAttrs d f@Function{..} = do
     _ <- checkReturnByRefAttr d f
     return ()
 
-funcValidateAttr :: (MonadError String me) => DatalogProgram -> Attribute -> me ()
+funcValidateAttr :: (MonadError String me) => DatalogProgram' name -> Attribute -> me ()
 funcValidateAttr d attr = do
     case name attr of
          "has_side_effects" -> return ()
@@ -144,7 +144,7 @@ funcValidateAttr d attr = do
 
 {- 'size' attribute: Gives DDlog a hint about the size of an extern data type in bytes. -}
 
-tdefCheckSizeAttr :: (MonadError String me) => DatalogProgram -> TypeDef -> me (Maybe Int)
+tdefCheckSizeAttr :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me (Maybe Int)
 tdefCheckSizeAttr d TypeDef{..} =
     case filter ((== "size") . name) tdefAttrs of
          []                   -> return Nothing
@@ -156,7 +156,7 @@ tdefCheckSizeAttr d TypeDef{..} =
 {- 'custom_serde' attribute: Tells DDlog not to generate `Serialize` and
  - `Deserialize` implementations for a type.  The user must write their own
  - implementations in Rust. -}
-tdefCheckCustomSerdeAttr :: (MonadError String me) => DatalogProgram -> TypeDef -> me Bool
+tdefCheckCustomSerdeAttr :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me Bool
 tdefCheckCustomSerdeAttr d TypeDef{..} =
     case find ((== "custom_serde") . name) tdefAttrs of
          Nothing   -> return False
@@ -164,7 +164,7 @@ tdefCheckCustomSerdeAttr d TypeDef{..} =
                                "The value of 'custom_serde' attribute must be 'true' or empty"
                          return True
 
-tdefGetCustomSerdeAttr :: DatalogProgram -> TypeDef -> Bool
+tdefGetCustomSerdeAttr :: DatalogProgram' name -> TypeDef -> Bool
 tdefGetCustomSerdeAttr d tdef = 
     case tdefCheckCustomSerdeAttr d tdef of
          Left e  -> error e
@@ -173,7 +173,7 @@ tdefGetCustomSerdeAttr d tdef =
 {- 'custom_from_record' attribute: Tells DDlog not to generate `FromRecord`
  - implementation for a type.  The user must write their own implementations in
  - Rust. -}
-tdefCheckCustomFromRecord :: (MonadError String me) => DatalogProgram -> TypeDef -> me Bool
+tdefCheckCustomFromRecord :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me Bool
 tdefCheckCustomFromRecord d TypeDef{..} =
     case find ((== "custom_from_record") . name) tdefAttrs of
          Nothing   -> return False
@@ -181,7 +181,7 @@ tdefCheckCustomFromRecord d TypeDef{..} =
                                "The value of 'custom_from_record' attribute must be 'true' or empty"
                          return True
 
-tdefGetCustomFromRecord :: DatalogProgram -> TypeDef -> Bool
+tdefGetCustomFromRecord :: DatalogProgram' name -> TypeDef -> Bool
 tdefGetCustomFromRecord d tdef = 
     case tdefCheckCustomFromRecord d tdef of
          Left e  -> error e
@@ -189,7 +189,7 @@ tdefGetCustomFromRecord d tdef =
 
 {- 'shared_ref' attribute: Tells DDlog that the type is a shared reference in
  - the style of `Ref` and `Intern`. -}
-tdefCheckSharedRefAttr :: (MonadError String me) => DatalogProgram -> TypeDef -> me Bool
+tdefCheckSharedRefAttr :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me Bool
 tdefCheckSharedRefAttr d TypeDef{..} =
     case find ((== "shared_ref") . name) tdefAttrs of
          Nothing   -> return False
@@ -197,7 +197,7 @@ tdefCheckSharedRefAttr d TypeDef{..} =
                                "The value of 'sharef_ref' attribute must be 'true' or empty"
                          return True
 
-tdefGetSharedRefAttr :: DatalogProgram -> TypeDef -> Bool
+tdefGetSharedRefAttr :: DatalogProgram' name -> TypeDef -> Bool
 tdefGetSharedRefAttr d tdef =
     case tdefCheckSharedRefAttr d tdef of
          Left e  -> error e
@@ -205,7 +205,7 @@ tdefGetSharedRefAttr d tdef =
 
 {- 'alias' attribute: Tells DDlog not to generate Rust declaration for the type
  - and instead replace all occurrences of the type with its definition. -}
-tdefCheckAliasAttr :: (MonadError String me) => DatalogProgram -> TypeDef -> me Bool
+tdefCheckAliasAttr :: (MonadError String me) => DatalogProgram' name -> TypeDef -> me Bool
 tdefCheckAliasAttr d TypeDef{..} =        
     case find ((== "alias") . name) tdefAttrs of
          Nothing   -> return False
@@ -214,7 +214,7 @@ tdefCheckAliasAttr d TypeDef{..} =
                    "The value of 'alias' attribute must be 'true' or empty"
              return True
 
-tdefGetAliasAttr :: DatalogProgram -> TypeDef -> Bool
+tdefGetAliasAttr :: DatalogProgram' name -> TypeDef -> Bool
 tdefGetAliasAttr d tdef =
     case tdefCheckAliasAttr d tdef of
          Left e  -> error e
@@ -222,7 +222,7 @@ tdefGetAliasAttr d tdef =
 
 {- 'rust' attribute is transferred directly to the generated Rust code. -}
 
-checkRustAttrs :: (MonadError String me) => DatalogProgram -> [Attribute] -> me [String]
+checkRustAttrs :: (MonadError String me) => DatalogProgram' name -> [Attribute] -> me [String]
 checkRustAttrs d attrs =
     mapM (\Attribute{..} ->
             case attrVal of
@@ -230,7 +230,7 @@ checkRustAttrs d attrs =
                  _ -> err d attrPos $ "Invalid 'rust' attribute: the value of the attribute must be a string literal, e.g., #[rust=\"serde(tag = \\\"type\\\"\")]")
          $ filter ((== "rust") . name) attrs
 
-getRustAttrs :: DatalogProgram -> [Attribute] -> [String]
+getRustAttrs :: DatalogProgram' name -> [Attribute] -> [String]
 getRustAttrs d attrs =
     case checkRustAttrs d attrs of
          Left e   -> error e
@@ -239,7 +239,7 @@ getRustAttrs d attrs =
 {- 'deserialize_from_array' attribute: specifies key function to be used to
    deserialize array into a map. -}
 
-fieldCheckDeserializeArrayAttr :: (MonadError String me) => DatalogProgram -> Field -> me (Maybe String)
+fieldCheckDeserializeArrayAttr :: (MonadError String me) => DatalogProgram' name -> Field -> me (Maybe String)
 fieldCheckDeserializeArrayAttr d field@Field{..} =
     case filter ((== "deserialize_from_array") . name) fieldAttrs of
          []                   -> return Nothing
@@ -253,7 +253,7 @@ fieldCheckDeserializeArrayAttr d field@Field{..} =
              $ "Invalid 'deserialize_from_array' attribute value '" ++ show attrVal ++ "': the value of the attribute must be the name of the key function, e.g.: \"deserialize_from_array=key_func()\"."
          _               -> err d (pos field) $ "Multiple 'deserialize_from_array' attributes are not allowed."
 
-fieldGetDeserializeArrayAttr :: DatalogProgram -> Field -> Maybe String
+fieldGetDeserializeArrayAttr :: DatalogProgram' name -> Field -> Maybe String
 fieldGetDeserializeArrayAttr d field =
     case fieldCheckDeserializeArrayAttr d field of
          Left e      -> error e
@@ -262,7 +262,7 @@ fieldGetDeserializeArrayAttr d field =
 {- 'has_side_effects' attribute: labels functions with side effects, e.g.,
    logging functions. -}
 
-checkSideEffectAttr :: (MonadError String me) => DatalogProgram -> Function -> me Bool
+checkSideEffectAttr :: (MonadError String me) => DatalogProgram' name -> Function -> me Bool
 checkSideEffectAttr d Function{..} =
     case find ((== "has_side_effects") . name) funcAttrs of
          Nothing -> return False
@@ -271,13 +271,13 @@ checkSideEffectAttr d Function{..} =
                             "The value of 'has_side_effects' attribute must be 'true' or empty"
                          return True
 
-funcGetSideEffectAttr :: DatalogProgram -> Function -> Bool
+funcGetSideEffectAttr :: DatalogProgram' name -> Function -> Bool
 funcGetSideEffectAttr d f =
     case checkSideEffectAttr d f of
          Left e -> error e
          Right has_side_effects -> has_side_effects
 
-checkReturnByRefAttr :: (MonadError String me) => DatalogProgram -> Function -> me Bool
+checkReturnByRefAttr :: (MonadError String me) => DatalogProgram' name -> Function -> me Bool
 checkReturnByRefAttr d Function{..} =
     case find ((== "return_by_ref") . name) funcAttrs of
          Nothing -> return False
@@ -286,7 +286,7 @@ checkReturnByRefAttr d Function{..} =
                             "The value of 'return_by_ref' attribute must be 'true' or empty"
                          return True
 
-funcGetReturnByRefAttr :: DatalogProgram -> Function -> Bool
+funcGetReturnByRefAttr :: DatalogProgram' name -> Function -> Bool
 funcGetReturnByRefAttr d f =
     case checkReturnByRefAttr d f of
          Left e -> error e

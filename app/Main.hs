@@ -67,6 +67,7 @@ data TOption = Help
              | RunRustfmt
              | RustFlatBuffers
              | NestedTS32
+             | DDDir String
 
 options :: [OptDescr TOption]
 options = [ Option ['h'] ["help"]             (NoArg Help)                      "Display help message."
@@ -93,6 +94,7 @@ options = [ Option ['h'] ["help"]             (NoArg Help)                      
           , Option []    ["run-rustfmt"]      (NoArg RunRustfmt)                "Run rustfmt on the generated code"
           , Option []    ["rust-flatbuffers"] (NoArg RustFlatBuffers)           "Build flatbuffers bindings for Rust"
           , Option []    ["nested-ts-32"]     (NoArg NestedTS32)                "Use 32-bit instead of 16-bit nested timestamps. Supports recursive programs that may perform >65,536 iterations. Slightly increases the memory footprint of the program."
+          , Option []    ["base-dir"]         (ReqArg DDDir "PATH")             "Where to find the differential_datalog base library"
           ]
 
 addOption :: Config -> TOption -> IO Config
@@ -124,6 +126,7 @@ addOption config OmitWorkspace    = return config { confOmitWorkspace = True }
 addOption config RunRustfmt       = return config { confRunRustfmt = True }
 addOption config RustFlatBuffers  = return config { confRustFlatBuffers = True }
 addOption config NestedTS32       = return config { confNestedTS32 = True }
+addOption config (DDDir s)        = return config { confDDLoc = Just s }
 
 validateConfig :: Config -> IO ()
 validateConfig Config {..} = do
@@ -163,7 +166,7 @@ main = do
             when (confRunRustfmt config') $
                 runCommandReportingErr "rustfmt" "cargo" ["fmt", "--all"] $ Just (confOutputDir config')
 
-parseValidate :: Config -> IO ([DatalogModule], DatalogProgram, M.Map ModuleName Doc, Doc)
+parseValidate :: Config -> IO ([DatalogModule], DatalogProgramBuilder, M.Map ModuleName Doc, Doc)
 parseValidate Config{..} = do
     fdata <- readFile confDatalogFile
     (modules, d, rs_code, toml_code) <- parseDatalogProgram (takeDirectory confDatalogFile:confLibDirs) True fdata confDatalogFile
@@ -200,4 +203,4 @@ compileProg conf@Config{..} = do
     let crate_types = (if confStaticLib then ["staticlib"] else []) ++
                       (if confDynamicLib then ["cdylib"] else [])
     let ?cfg = conf
-    compile prog specname modules rs_code toml_code dir crate_types
+    compile (specname <$ prog) modules rs_code toml_code dir crate_types

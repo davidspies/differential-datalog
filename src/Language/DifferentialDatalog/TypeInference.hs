@@ -199,7 +199,7 @@ teTuple ts  = TETuple ts
 -- identifiers.  For example, when doing type inference for a function call
 -- expression, we introduce fresh type variables for type arguments of the
 -- function.
-typeToTExpr' :: (?d::DatalogProgram) => DDExpr -> Type -> GeneratorMonad TExpr
+typeToTExpr' :: (?d::DatalogProgram' name) => DDExpr -> Type -> GeneratorMonad TExpr
 typeToTExpr' _  TBool{}         = return TEBool
 typeToTExpr' _  TInt{}          = return TEBigInt
 typeToTExpr' _  TString{}       = return TEString
@@ -229,7 +229,7 @@ typeToTExpr' de TFunction{..}   = TEFunc <$> mapM (\arg -> (if atypeMut arg then
 -- Concrete and abstract type variables belong to different
 -- namespaces (i.e., the same name represents different variables in
 -- concrete and abstract types).
-inferTypeArgs :: (MonadError String me) => DatalogProgram -> Pos -> String -> [(Type, Type)] -> me (M.Map String Type)
+inferTypeArgs :: (MonadError String me) => DatalogProgram' name -> Pos -> String -> [(Type, Type)] -> me (M.Map String Type)
 inferTypeArgs d p ctx ts = do
     let ?d = d
     let constraints = -- Manufacture a bogus expression for typeToTExpr'.
@@ -242,7 +242,7 @@ inferTypeArgs d p ctx ts = do
     return $ M.fromList $ map (\(TVarAux{..}, t) -> (tvarName, t)) $ M.toList typing
 
 -- Check if two types are compatible (i.e., both can be concretized to the same type).
-unifyTypes :: DatalogProgram -> Type -> Type -> Bool
+unifyTypes :: DatalogProgram' name -> Type -> Type -> Bool
 unifyTypes d t1 t2 =
     let ?d = d in
     let constraints = -- Manufacture bogus expressions for typeToTExpr'.
@@ -253,15 +253,15 @@ unifyTypes d t1 t2 =
     in isRight $ solve d constraints False
 
 -- Check if to type expressions are compatible (i.e., both can be concretized to the same type).
-unifyTExprs :: (?d::DatalogProgram) => TExpr -> TExpr -> Bool
+unifyTExprs :: (?d::DatalogProgram' name) => TExpr -> TExpr -> Bool
 unifyTExprs te1 te2 =
     isRight $ solve ?d [CPredicate $ PEq te1 te2 $ ExplanationString nopos ""] False
 
 -- Type expression is a struct of the specified user-defined type: 'is_MyStruct |e|'.
-deIsStruct :: (?d::DatalogProgram) => DDExpr -> String -> GeneratorMonad Constraint
+deIsStruct :: (?d::DatalogProgram' name) => DDExpr -> String -> GeneratorMonad Constraint
 deIsStruct de n = CPredicate <$> deIsStruct_ de n
 
-deIsStruct_ :: (?d::DatalogProgram) => DDExpr -> String -> GeneratorMonad Predicate
+deIsStruct_ :: (?d::DatalogProgram' name) => DDExpr -> String -> GeneratorMonad Predicate
 deIsStruct_ de n =
     tvarTypeOfExpr de <===> (TEUser n <$> (mapM (teTVarAux de . name) tdefArgs))
     where
@@ -273,7 +273,7 @@ deIsBit de = CPredicate <$> deIsBit_ de
 deIsBit_ :: DDExpr -> GeneratorMonad Predicate
 deIsBit_ de = tvarTypeOfExpr de <~~~ (TEBit (IVar $ WidthOfExpr de))
 
-deIsFP :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad Constraint
+deIsFP :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad Constraint
 deIsFP de = do
     isdouble <- tvarTypeOfExpr de <==== TEDouble
     ce <- teTypeOfExpr de
@@ -286,7 +286,7 @@ deIsFP de = do
            $ "expression '" ++ show de ++ "' must be of a floating point type ('float' or 'double')"
 
 -- 'is_bits t = is_Bit t || is_Signed t'.
-deIsBits :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad Constraint
+deIsBits :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad Constraint
 deIsBits de = do
     ce <- teTypeOfExpr de
     let expand TETVar{}   = return Nothing
@@ -298,7 +298,7 @@ deIsBits de = do
            $ "expression '" ++ show de ++ "' must be of a fixed-width integer type ('bit<>' or 'signed<>')"
 
 -- 'is_int t = is_bits t || is_BigInt t'.
-deIsInt :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad Constraint
+deIsInt :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad Constraint
 deIsInt de = do
     let expand TETVar{}   = return Nothing
         expand TEBit{}    = return $ Just []
@@ -311,7 +311,7 @@ deIsInt de = do
            $ "expression '" ++ show de ++ "' must be of an integer type ('bit<>', 'signed<>', or 'bigint')"
 
 -- 'is_num t = is_int t || is_fp t'.
-deIsNum :: (?d::DatalogProgram) => DDExpr -> Maybe [Constraint] -> (forall me . (MonadError String me) => TExpr -> me (Maybe [Constraint])) -> GeneratorMonad Constraint
+deIsNum :: (?d::DatalogProgram' name) => DDExpr -> Maybe [Constraint] -> (forall me . (MonadError String me) => TExpr -> me (Maybe [Constraint])) -> GeneratorMonad Constraint
 deIsNum de def ferr = do
     let expand TETVar{}   = return Nothing
         expand TEBit{}    = return $ Just []
@@ -325,7 +325,7 @@ deIsNum de def ferr = do
            $ "expression '" ++ show de ++ "' must be of a numeric type"
 
 -- Type expression is a shared reference type with specified inner type.
-deIsSharedRef :: (?d::DatalogProgram) => DDExpr -> TypeVar -> GeneratorMonad Constraint
+deIsSharedRef :: (?d::DatalogProgram' name) => DDExpr -> TypeVar -> GeneratorMonad Constraint
 deIsSharedRef de tv = do
     ce <- teTypeOfExpr de
     let expand TETVar{} = return Nothing
@@ -342,7 +342,7 @@ deIsSharedRef de tv = do
 
 -- Expression is a collection with specified element type (when iterating using
 -- for-loop).
-deIsIterable :: (?d::DatalogProgram) => DDExpr -> TypeVar -> GeneratorMonad Constraint
+deIsIterable :: (?d::DatalogProgram' name) => DDExpr -> TypeVar -> GeneratorMonad Constraint
 deIsIterable de tv = do
     let expand TETVar{} = return Nothing
         expand (TEExtern n [t'])    | elem n sET_TYPES = return $ Just [tv ==== t']
@@ -379,7 +379,7 @@ deIsIterable de tv = do
 --short :: String -> String
 --short = (\x -> if length x < 100 then x else take (100 - 3) x ++ "...") . replace "\n" " "
 
-inferTypes :: (MonadError String me) => DatalogProgram -> [(ECtx, Expr)] -> me [Expr]
+inferTypes :: (MonadError String me) => DatalogProgram' name -> [(ECtx, Expr)] -> me [Expr]
 inferTypes d es = do
     let ?d = d
     let es' = map (\(ctx, e) -> DDExpr ctx e) es
@@ -502,7 +502,7 @@ inferTypes d es = do
 -- 'function f(arg1: t1, ..., argn: tn): t0 { e }'
 -- the following type constraints are added:
 -- '|e| = t0, |argi|=ti'.
-contextConstraints :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad ()
+contextConstraints :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad ()
 contextConstraints de@(DDExpr (CtxFunc f@Function{..}) _) = do
     addConstraint =<< tvarTypeOfExpr de <~~~~ typeToTExpr funcType
     addConstraints =<< mapM (\a -> tvarTypeOfVar (ArgVar f (name a)) <==== typeToTExpr (typ a)) funcArgs
@@ -571,17 +571,17 @@ contextConstraints (DDExpr ctx _) =
 
 {- Encode type constraints for an expression. -}
 
-exprConstraints :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad ()
+exprConstraints :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad ()
 exprConstraints (DDExpr ctx e) =
     exprTraverseCtxM exprConstraints' ctx e
 
-exprConstraints' :: (?d::DatalogProgram) => ECtx -> ENode -> GeneratorMonad ()
+exprConstraints' :: (?d::DatalogProgram' name) => ECtx -> ENode -> GeneratorMonad ()
 exprConstraints' ctx e = do
     let ddexpr = DDExpr ctx $ E e
     exprConstraints_ ddexpr
 
 -- Variable reference expression has the same type as the variable.
-exprConstraints_ :: (?d::DatalogProgram) => DDExpr -> GeneratorMonad ()
+exprConstraints_ :: (?d::DatalogProgram' name) => DDExpr -> GeneratorMonad ()
 exprConstraints_ de@(DDExpr ctx e@(E (EVar _ v))) = do
     let var = case lookupVar ?d ctx v of
                    Nothing -> case exprVarDecls ?d ctx e of
@@ -687,7 +687,8 @@ exprConstraints_ de@(DDExpr ctx (E e@EApply{..})) = do
 
 exprConstraints_ de@(DDExpr ctx (E e@EField{..})) = do
     dv <- tvarTypeOfExpr de
-    let expand t' = case teDeref t' of
+    let expand :: (MonadError String me) => TExpr -> me (Maybe [Constraint])
+        expand t' = case teDeref t' of
                          -- Type has not been sufficiently expanded yet.
                          TETVar{} -> return Nothing
                          te@(TEUser n _) | elem n (map name candidates) -> do

@@ -7,11 +7,14 @@ import Text.PrettyPrint
 import Language.DifferentialDatalog.Syntax
 import {-# SOURCE #-} Language.DifferentialDatalog.Type
 
-mkConstructorName :: Bool -> String -> Type -> String -> Doc
+data Scope = Local | Types String
+
+mkConstructorName :: Scope -> String -> Type -> String -> Doc
 mkType :: (WithType a) => DatalogProgram -> Bool -> a -> Doc
 rnameFlat :: String -> Doc
-rnameScoped :: Bool -> String -> Doc
+rnameScoped :: Scope -> String -> Doc
+progTypes :: DatalogProgram -> Scope
 
-tupleStruct :: Bool -> [Doc] -> Doc
+tupleStruct :: Scope -> [Doc] -> Doc
 
-recordAfterPrefix :: DatalogProgram -> Rule -> Int -> [Expr]
+recordAfterPrefix :: DatalogProgram' name -> Rule -> Int -> [Expr]

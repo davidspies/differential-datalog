@@ -28,7 +28,7 @@ use differential_datalog::DDlog;
 use differential_datalog::DeltaMap;
 use num_traits::cast::ToPrimitive;
 use rustop::opts;
-use types::log_set_default_callback;
+use datalog_example_types::log_set_default_callback;
 
 #[cfg(feature = "profile")]
 use cpuprofiler::PROFILER;

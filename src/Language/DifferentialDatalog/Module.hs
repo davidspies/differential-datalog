@@ -99,7 +99,7 @@ mainModuleName = ModuleName []
 data DatalogModule = DatalogModule {
     moduleName :: ModuleName,
     moduleFile :: FilePath,
-    moduleDefs :: DatalogProgram
+    moduleDefs :: DatalogProgramBuilder
 }
 
 emptyModule :: ModuleName -> DatalogModule
@@ -128,7 +128,7 @@ stdImports = map stdImport stdLibs
 --
 -- if 'import_std' is true, imports the standard libraries
 -- to each module.
-parseDatalogProgram :: [FilePath] -> Bool -> String -> FilePath -> IO ([DatalogModule], DatalogProgram, M.Map ModuleName Doc, Doc)
+parseDatalogProgram :: [FilePath] -> Bool -> String -> FilePath -> IO ([DatalogModule], DatalogProgramBuilder, M.Map ModuleName Doc, Doc)
 parseDatalogProgram roots import_std fdata fname = do
     roots' <- nub <$> mapM canonicalizePath roots
     prog <- parseDatalogString fdata fname
@@ -160,9 +160,10 @@ parseDatalogProgram roots import_std fdata fname = do
                all_modules
     return (all_modules, prog'', rs, toml)
 
-mergeModules :: (MonadError String me) => [DatalogProgram] -> me DatalogProgram
+mergeModules :: (MonadError String me) => [DatalogProgramBuilder] -> me DatalogProgramBuilder
 mergeModules mods = do
     let prog = DatalogProgram {
+        progName         = (),
         progImports      = [],
         progTypedefs     = M.unions $ map progTypedefs mods,
         progFunctions    = M.unions $ map progFunctions mods,
@@ -228,7 +229,7 @@ findModule roots mod imp = do
 
 type MMap = M.Map ModuleName DatalogModule
 
-flattenNamespace :: [DatalogModule] -> IO DatalogProgram
+flattenNamespace :: [DatalogModule] -> IO DatalogProgramBuilder
 flattenNamespace mods = do
     let mmap = M.fromList $ map (\m -> (moduleName m, m)) mods
     let prog = do mods' <- mapM (flattenNamespace1 mmap) mods
@@ -237,7 +238,7 @@ flattenNamespace mods = do
          Left e  -> errorWithoutStackTrace e
          Right p -> return p
 
-flattenNamespace1 :: (MonadError String me) => MMap -> DatalogModule -> me DatalogProgram
+flattenNamespace1 :: (MonadError String me) => MMap -> DatalogModule -> me DatalogProgramBuilder
 flattenNamespace1 mmap mod@DatalogModule{..} = do
     -- rename typedefs, functions, and relations declared in this module
     let types' = namedListToMap $ map (namedFlatten mod) (M.elems $ progTypedefs moduleDefs)
@@ -298,7 +299,7 @@ candidates DatalogModule{..} p n = do
         errBrief p $ "Unknown module " ++ show mod ++ ".  Did you forget to import it?"
     return mods
 
-flattenName :: (MonadError String me) => (DatalogProgram -> String -> Maybe a) -> String -> MMap -> DatalogModule -> Pos -> String -> me (String, a)
+flattenName :: (MonadError String me) => (DatalogProgramBuilder -> String -> Maybe a) -> String -> MMap -> DatalogModule -> Pos -> String -> me (String, a)
 flattenName lookup_fun entity mmap mod p c = do
     cand_mods <- candidates mod p c
     let lname = nameLocalStr c

@@ -8,6 +8,6 @@ import Control.Monad.Except
 import Language.DifferentialDatalog.Pos
 import Language.DifferentialDatalog.Syntax
 
-inferTypes :: (MonadError String me) => DatalogProgram -> [(ECtx, Expr)] -> me [Expr]
-inferTypeArgs :: (MonadError String me) => DatalogProgram -> Pos -> String -> [(Type, Type)] -> me (M.Map String Type)
-unifyTypes :: DatalogProgram -> Type -> Type -> Bool
+inferTypes :: (MonadError String me) => DatalogProgram' name -> [(ECtx, Expr)] -> me [Expr]
+inferTypeArgs :: (MonadError String me) => DatalogProgram' name -> Pos -> String -> [(Type, Type)] -> me (M.Map String Type)
+unifyTypes :: DatalogProgram' name -> Type -> Type -> Bool

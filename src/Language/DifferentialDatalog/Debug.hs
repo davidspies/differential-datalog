@@ -25,7 +25,7 @@ SOFTWARE.
 
 {- |
 Module     : Debug
-Description: Helper functions for adding debug hooks to a 'DatalogProgram'.
+Description: Helper functions for adding debug hooks to a 'DatalogProgram' name'.
 -}
 module Language.DifferentialDatalog.Debug (
     debugUpdateRHSRules,
@@ -63,7 +63,7 @@ addBindingToRHSLiteral (rule, _) = rule
 -- as
 -- 'var __debug_g = (e, r).group_by(v1,v2),
 --  (var input, var g) = debug_split_group(__debug_g),'
-updateRHSGroupBy :: DatalogProgram -> Rule -> Int -> [(RuleRHS, Int)]
+updateRHSGroupBy :: DatalogProgram' name -> Rule -> Int -> [(RuleRHS, Int)]
 updateRHSGroupBy d rule rhsidx =
   let
      r = (ruleRHS rule) !! rhsidx
@@ -93,7 +93,7 @@ ddlogWeightExpr = eVar "ddlog_weight"
 ddlogTimestampExpr :: Expr
 ddlogTimestampExpr = eVar "ddlog_timestamp"
 
-generateInspectDebugJoin :: DatalogProgram -> Int -> Rule -> Int -> Int -> [RuleRHS]
+generateInspectDebugJoin :: DatalogProgram' name -> Int -> Rule -> Int -> Int -> [RuleRHS]
 generateInspectDebugJoin d ruleIdx rule preRhsIdx index =
   let
     input1 = head $ Compile.recordAfterPrefix d rule (index - 1)
@@ -107,7 +107,7 @@ generateInspectDebugJoin d ruleIdx rule preRhsIdx index =
                                               input2,
                                               outputs !! i]}) [0..length outputs -1]
 
-generateInspectDebug :: DatalogProgram -> Int -> Rule -> Int -> Int -> [RuleRHS]
+generateInspectDebug :: DatalogProgram' name -> Int -> Rule -> Int -> Int -> [RuleRHS]
 generateInspectDebug d ruleIdx rule preRhsIdx index =
   let
     input1 = if index == 0
@@ -131,7 +131,7 @@ generateInspectDebug d ruleIdx rule preRhsIdx index =
                                               outputs !! i]}) [0..length outputs - 1]
 
 
-generateInspectDebugGroupBy :: DatalogProgram -> Int -> Rule -> Int -> Int -> [RuleRHS]
+generateInspectDebugGroupBy :: DatalogProgram' name -> Int -> Rule -> Int -> Int -> [RuleRHS]
 generateInspectDebugGroupBy d ruleIdx rule preRhsIdx index =
   let outputs = Compile.recordAfterPrefix d rule index
   in map (\i -> RHSInspect {rhsInspectExpr = eApplyFunc "debug::debug_event"
@@ -142,7 +142,7 @@ generateInspectDebugGroupBy d ruleIdx rule preRhsIdx index =
                                               eVar "__inputs",
                                               outputs !! i]}) [0..length outputs -1]
 
-mkInspect :: DatalogProgram -> Int -> Rule -> Int -> Int -> Maybe [RuleRHS]
+mkInspect :: DatalogProgram' name -> Int -> Rule -> Int -> Int -> Maybe [RuleRHS]
 mkInspect d ruleIdx rule preRhsIdx index =
   let rhsRule = ruleRHS rule
   in if index == 0 && index < length rhsRule - 1
@@ -165,12 +165,12 @@ mkInspect d ruleIdx rule preRhsIdx index =
 -- only contains one literal.
 -- 3. If a rule has multiple heads, then multiple inspect is inserted after the last
 -- term corresponding to each head.
-insertRHSInspectDebugHooks :: DatalogProgram -> Int -> Rule -> [Int] -> [RuleRHS]
+insertRHSInspectDebugHooks :: DatalogProgram' name -> Int -> Rule -> [Int] -> [RuleRHS]
 insertRHSInspectDebugHooks d rlIdx rule rhsIdxs =
   concatMap (\i -> let inspect = concat $ maybeToList $ mkInspect d rlIdx rule (rhsIdxs !! i) i in
                    (ruleRHS rule !! i) : inspect) [0..length (ruleRHS rule) - 1]
 
-debugUpdateRHSRules :: DatalogProgram -> Int -> Rule -> [RuleRHS]
+debugUpdateRHSRules :: DatalogProgram' name -> Int -> Rule -> [RuleRHS]
 debugUpdateRHSRules d rlIdx rule =
   let
     -- First pass updates RHSLiteral without any binding with a binding.

@@ -133,7 +133,7 @@ unitTests dir = do
     testGroup "unit tests" $
           [ testCase (takeBaseName dir) $ unitTest dir ]
 
-parseValidate :: FilePath -> Bool -> String -> IO ([DatalogModule], DatalogProgram, M.Map ModuleName Doc, Doc)
+parseValidate :: FilePath -> Bool -> String -> IO ([DatalogModule], DatalogProgramBuilder, M.Map ModuleName Doc, Doc)
 parseValidate file java program = do
     (modules, d, rs_code, toml_code) <- parseDatalogProgram [takeDirectory file, "lib"] True program file
     d' <- case validate d of
@@ -261,7 +261,7 @@ generateDDLogRust java file crate_types = do
     -- generate Rust project
     let dir = takeDirectory fname
     let ?cfg = defaultConfig { confDatalogFile = fname, confJava = java, confOmitWorkspace = True }
-    compile prog specname modules rs_code toml_code dir crate_types
+    compile (specname <$ prog) modules rs_code toml_code dir crate_types
 
 -- Feed test data via pipe if a .dat file exists
 cliTest :: Bool -> FilePath -> String -> FilePath -> [String] -> IO ()

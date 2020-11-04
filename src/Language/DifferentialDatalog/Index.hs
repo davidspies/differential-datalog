@@ -30,6 +30,7 @@ Description: Helper functions for manipulating Indexes.
 module Language.DifferentialDatalog.Index (
     idxIdentifier,
     idxRelation,
+    idxRelation_,
     idxKeyType
 ) 
 where
@@ -42,11 +43,14 @@ import Language.DifferentialDatalog.NS
 import Language.DifferentialDatalog.Type
 
 -- | Unique id, assigned to the index
-idxIdentifier :: DatalogProgram -> Index -> Int
+idxIdentifier :: DatalogProgram' name -> Index -> Int
 idxIdentifier d idx = M.findIndex (name idx) $ progIndexes d
 
-idxRelation :: DatalogProgram -> Index -> Relation
+idxRelation :: DatalogProgram' name -> Index -> Relation
 idxRelation d idx = getRelation d $ atomRelation $ idxAtom idx
+
+idxRelation_ :: DatalogProgram -> Index -> Relation
+idxRelation_ = idxRelation
 
 idxKeyType :: Index -> Type
 idxKeyType = tTuple . map typ . idxVars

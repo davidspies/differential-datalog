@@ -34,7 +34,7 @@ use super::*;
 use super::flatbuf;
 
 #[cfg(feature = "flatbuf")]
-use types::flatbuf::FromFlatBuffer;
+use datalog_example_types::flatbuf::FromFlatBuffer;
 
 // TODO: Move HDDlog into the differential_datalog crate.
 #[derive(Debug)]
